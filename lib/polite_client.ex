@@ -15,4 +15,6 @@ defmodule PoliteClient do
   def hello do
     :world
   end
+
+  defdelegate start(key, opts \\ []), to: PoliteClient.ClientsMgr
 end
