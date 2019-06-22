@@ -6,15 +6,12 @@ defmodule PoliteClient.Application do
   use Application
 
   def start(_type, _args) do
-    # List all child processes to be supervised
     children = [
-      # Starts a worker by calling: PoliteClient.Worker.start_link(arg)
-      # {PoliteClient.Worker, arg}
+      {Registry, keys: :unique, name: Registry.PoliteClient},
+      PoliteClient.AppSup
     ]
 
-    # See https://hexdocs.pm/elixir/Supervisor.html
-    # for other strategies and supported options
-    opts = [strategy: :one_for_one, name: PoliteClient.Supervisor]
+    opts = [strategy: :rest_for_one, name: PoliteClient.Supervisor]
     Supervisor.start_link(children, opts)
   end
 end
