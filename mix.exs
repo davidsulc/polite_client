@@ -22,7 +22,9 @@ defmodule PoliteClient.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:dialyxir, "~> 0.5.1", only: :dev}
+      {:dialyxir, "~> 0.5.1", only: :dev},
+      # TODO remove
+      {:mojito, "~> 0.3.0", only: :dev}
     ]
   end
 end
