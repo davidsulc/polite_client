@@ -5,8 +5,8 @@ defmodule PoliteClient.Client do
 
   alias PoliteClient.Request
 
-  def start_link([]) do
-    GenServer.start_link(__MODULE__, :ok)
+  def start_link(args) do
+    GenServer.start_link(__MODULE__, args, args)
   end
 
   def perform_request(pid, %Request{} = request) do
@@ -14,7 +14,7 @@ defmodule PoliteClient.Client do
   end
 
   @impl GenServer
-  def init(:ok) do
+  def init(_args) do
     {:ok, %{}}
   end
 

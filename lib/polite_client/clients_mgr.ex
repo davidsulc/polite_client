@@ -30,31 +30,49 @@ defmodule PoliteClient.ClientsMgr do
   end
 
   @impl GenServer
-  def handle_call({:start_client, {key, opts}}, _from, %{registry: registry} = state) do
-    opts = sanitize_opts(opts)
-
-    case Registry.lookup(registry, key) do
-      [] ->
-        child_spec = Supervisor.child_spec({Client, opts}, id: "client_#{inspect(key)}")
-
-        with {:ok, pid} <- DynamicSupervisor.start_child(ClientsSupervisor, child_spec),
-             {:ok, _} <- Registry.register(registry, key, pid) do
-          {:reply, :ok, state}
-        else
-          {:error, :max_children} = error -> {:reply, error, state}
-          {:error, {:already_registered, pid}} -> {:reply, {:error, {:key_conflict, pid}}, state}
+  def handle_call({:start_client, {key, opts}}, _from, state) do
+    state
+    |> via_tuple(key)
+    |> GenServer.whereis()
+    |> case do
+      nil ->
+        case start_client(state, key, opts) do
+          :ok -> {:reply, :ok, state}
+          {:error, _} = error -> error
         end
 
-      [{_, client_pid}] ->
+      client_pid ->
         {:reply, {:error, {:already_started, client_pid}}, state}
     end
   end
 
   @impl GenServer
-  def handle_call({:find_client, key}, _from, %{registry: registry} = state) do
-    case Registry.lookup(registry, key) do
-      [] -> {:reply, :not_found, state}
-      [{_, pid}] -> {:reply, {:ok, pid}, state}
+  def handle_call({:find_client, key}, _from, state) do
+    state
+    |> via_tuple(key)
+    |> GenServer.whereis()
+    |> case do
+      nil -> {:reply, :not_found, state}
+      pid -> {:reply, {:ok, pid}, state}
+    end
+  end
+
+  defp start_client(state, key, opts) do
+    opts = sanitize_opts(opts)
+    via_tuple = via_tuple(state, key)
+
+    child_spec =
+      Supervisor.child_spec({Client, opts},
+        id: "client_#{inspect(key)}",
+        start: {Client, :start_link, [[name: via_tuple]]}
+      )
+
+    with {:started, nil} <- {:started, state |> via_tuple(key) |> GenServer.whereis()},
+         {:ok, _pid} <- DynamicSupervisor.start_child(ClientsSupervisor, child_spec) do
+      :ok
+    else
+      {:started, pid} -> {:error, {:key_conflict, pid}}
+      {:error, :max_children} = error -> error
     end
   end
 
@@ -67,5 +85,9 @@ defmodule PoliteClient.ClientsMgr do
     end
 
     Keyword.drop(opts, [:name])
+  end
+
+  def via_tuple(%{registry: registry}, key) do
+    {:via, Registry, {registry, key}}
   end
 end
