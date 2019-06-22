@@ -58,7 +58,6 @@ defmodule PoliteClient.ClientsMgr do
   end
 
   defp start_client(state, key, opts) do
-    opts = sanitize_opts(opts)
     via_tuple = via_tuple(state, key)
 
     child_spec =
@@ -74,17 +73,6 @@ defmodule PoliteClient.ClientsMgr do
       {:started, pid} -> {:error, {:key_conflict, pid}}
       {:error, :max_children} -> {:error, :max_clients}
     end
-  end
-
-  @spec sanitize_opts(opts :: Keyword.t()) :: Keyword.t()
-  defp sanitize_opts(opts) do
-    if Keyword.get(opts, :name) do
-      Logger.warn(
-        "Do not provide a `:name` option when starting clients: use the `key` value to address the client"
-      )
-    end
-
-    Keyword.drop(opts, [:name])
   end
 
   def via_tuple(%{registry: registry}, key) do
