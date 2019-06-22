@@ -6,10 +6,9 @@ defmodule PoliteClient.ClientsMgr do
   alias PoliteClient.{Client, ClientsSupervisor}
 
   @name __MODULE__
-  @registry Registry.PoliteClient
 
-  def start_link([]) do
-    GenServer.start_link(__MODULE__, :ok, name: @name)
+  def start_link(args) do
+    GenServer.start_link(__MODULE__, args, name: @name)
   end
 
   @spec start(key :: term(), opts :: Keyword.t()) ::
@@ -26,8 +25,8 @@ defmodule PoliteClient.ClientsMgr do
   end
 
   @impl GenServer
-  def init(:ok) do
-    {:ok, %{registry: @registry}}
+  def init(args) do
+    {:ok, %{registry: Keyword.fetch!(args, :registry)}}
   end
 
   @impl GenServer

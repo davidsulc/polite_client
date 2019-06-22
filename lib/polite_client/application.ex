@@ -5,10 +5,12 @@ defmodule PoliteClient.Application do
 
   use Application
 
+  @registry Registry.PoliteClient
+
   def start(_type, _args) do
     children = [
-      {Registry, keys: :unique, name: Registry.PoliteClient},
-      PoliteClient.AppSup
+      {Registry, keys: :unique, name: @registry},
+      {PoliteClient.AppSup, registry: @registry}
     ]
 
     opts = [strategy: :rest_for_one, name: PoliteClient.Supervisor]
