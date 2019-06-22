@@ -20,21 +20,26 @@ defmodule PoliteClient.ClientsMgr do
     GenServer.call(@name, {:start_client, {key, opts}})
   end
 
-  @impl GenServer
-  def init(:ok) do
-    {:ok, %{}}
+  @spec get(key :: term()) :: {:ok, pid()} | :not_found
+  def get(key) do
+    GenServer.call(@name, {:find_client, key})
   end
 
   @impl GenServer
-  def handle_call({:start_client, {key, opts}}, _from, state) do
+  def init(:ok) do
+    {:ok, %{registry: @registry}}
+  end
+
+  @impl GenServer
+  def handle_call({:start_client, {key, opts}}, _from, %{registry: registry} = state) do
     opts = sanitize_opts(opts)
 
-    case Registry.lookup(@registry, key) do
+    case Registry.lookup(registry, key) do
       [] ->
         child_spec = Supervisor.child_spec({Client, opts}, id: "client_#{inspect(key)}")
 
         with {:ok, pid} <- DynamicSupervisor.start_child(ClientsSupervisor, child_spec),
-             {:ok, _} <- Registry.register(@registry, key, pid) do
+             {:ok, _} <- Registry.register(registry, key, pid) do
           {:reply, :ok, state}
         else
           {:error, :max_children} = error -> {:reply, error, state}
@@ -43,6 +48,14 @@ defmodule PoliteClient.ClientsMgr do
 
       [{_, client_pid}] ->
         {:reply, {:error, {:already_started, client_pid}}, state}
+    end
+  end
+
+  @impl GenServer
+  def handle_call({:find_client, key}, _from, %{registry: registry} = state) do
+    case Registry.lookup(registry, key) do
+      [] -> {:reply, :not_found, state}
+      [{_, pid}] -> {:reply, {:ok, pid}, state}
     end
   end
 
