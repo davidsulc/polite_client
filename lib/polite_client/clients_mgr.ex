@@ -14,7 +14,7 @@ defmodule PoliteClient.ClientsMgr do
   @spec start(key :: term(), opts :: Keyword.t()) ::
           :ok
           | {:error, {:key_conflict, pid()}}
-          | {:error, :max_children}
+          | {:error, :max_clients}
   def start(key, opts \\ []) do
     GenServer.call(@name, {:start_client, {key, opts}})
   end
@@ -38,7 +38,7 @@ defmodule PoliteClient.ClientsMgr do
       nil ->
         case start_client(state, key, opts) do
           :ok -> {:reply, :ok, state}
-          {:error, _} = error -> error
+          {:error, _} = error -> {:reply, error, state}
         end
 
       client_pid ->
@@ -72,7 +72,7 @@ defmodule PoliteClient.ClientsMgr do
       :ok
     else
       {:started, pid} -> {:error, {:key_conflict, pid}}
-      {:error, :max_children} = error -> error
+      {:error, :max_children} -> {:error, :max_clients}
     end
   end
 

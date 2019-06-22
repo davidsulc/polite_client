@@ -9,7 +9,10 @@ defmodule PoliteClient.AppSup do
   def init(args) do
     children = [
       {PoliteClient.ClientsMgr, registry: Keyword.fetch!(args, :registry)},
-      {DynamicSupervisor, strategy: :one_for_one, name: PoliteClient.ClientsSupervisor}
+      {DynamicSupervisor,
+       strategy: :one_for_one,
+       name: PoliteClient.ClientsSupervisor,
+       max_children: Keyword.get(args, :max_clients, :infinity)}
     ]
 
     Supervisor.init(children, strategy: :one_for_one)
