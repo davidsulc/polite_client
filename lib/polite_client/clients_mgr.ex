@@ -32,8 +32,7 @@ defmodule PoliteClient.ClientsMgr do
   @impl GenServer
   def handle_call({:start_client, {key, opts}}, _from, state) do
     state
-    |> via_tuple(key)
-    |> GenServer.whereis()
+    |> find_client(key)
     |> case do
       nil ->
         case start_client(state, key, opts) do
@@ -49,12 +48,17 @@ defmodule PoliteClient.ClientsMgr do
   @impl GenServer
   def handle_call({:find_client, key}, _from, state) do
     state
-    |> via_tuple(key)
-    |> GenServer.whereis()
+    |> find_client(key)
     |> case do
       nil -> {:reply, :not_found, state}
       pid -> {:reply, {:ok, pid}, state}
     end
+  end
+
+  defp find_client(state, key) do
+    state
+    |> via_tuple(key)
+    |> GenServer.whereis()
   end
 
   defp start_client(state, key, opts) do
@@ -66,7 +70,7 @@ defmodule PoliteClient.ClientsMgr do
         start: {Client, :start_link, [Keyword.put(opts, :name, via_tuple)]}
       )
 
-    with {:started, nil} <- {:started, state |> via_tuple(key) |> GenServer.whereis()},
+    with {:started, nil} <- {:started, find_client(state, key)},
          {:ok, _pid} <- DynamicSupervisor.start_child(ClientsSupervisor, child_spec) do
       :ok
     else
