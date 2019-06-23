@@ -5,7 +5,10 @@ defmodule PoliteClient.Client do
 
   alias PoliteClient.Request
 
+  @type http_client() :: (Request.t() -> {:ok, term()} | {:error, term()})
+
   def start_link(args) do
+    # TODO verify args contains :http_client
     GenServer.start_link(__MODULE__, args, args)
   end
 
@@ -14,18 +17,14 @@ defmodule PoliteClient.Client do
   end
 
   @impl GenServer
-  def init(_args) do
-    {:ok, %{}}
+  def init(args) do
+    {:ok, %{http_client: Keyword.fetch!(args, :http_client)}}
   end
 
   @impl GenServer
-  def handle_call({:request, request}, _from, state) do
-    {:reply, get_http_client().(request), state}
+  def handle_call({:request, request}, _from, %{http_client: c} = state) do
+    {:reply, c.(request), state}
   end
 
-  defp get_http_client() do
-    fn %Request{method: method, uri: uri, headers: headers, body: body, opts: opts} ->
-      Mojito.request(method, URI.to_string(uri), headers, body, opts)
-    end
-  end
+  # TODO allow specifying http_client as a module/behaviour
 end

@@ -61,9 +61,9 @@ defmodule PoliteClient.ClientsMgr do
     via_tuple = via_tuple(state, key)
 
     child_spec =
-      Supervisor.child_spec({Client, opts},
+      Supervisor.child_spec(Client,
         id: "client_#{inspect(key)}",
-        start: {Client, :start_link, [[name: via_tuple]]}
+        start: {Client, :start_link, [Keyword.put(opts, :name, via_tuple)]}
       )
 
     with {:started, nil} <- {:started, state |> via_tuple(key) |> GenServer.whereis()},
