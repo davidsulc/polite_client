@@ -14,7 +14,7 @@ defmodule PoliteClient.Client do
     GenServer.start_link(__MODULE__, args, args)
   end
 
-  def perform_request(pid, %Request{} = request) do
+  def async_request(pid, %Request{} = request) do
     GenServer.call(pid, {:request, request})
   end
 
@@ -29,17 +29,18 @@ defmodule PoliteClient.Client do
   end
 
   @impl GenServer
-  def handle_call({:request, request}, from, %{http_client: c} = state) do
+  def handle_call({:request, request}, {pid, _}, %{http_client: c} = state) do
     %Task{ref: ref} = Task.async(fn -> c.(request) end)
-    in_flight = Map.put(state.requests_in_flight, ref, from)
+    in_flight = Map.put(state.requests_in_flight, ref, pid)
 
-    {:noreply, %{state | requests_in_flight: in_flight}}
+    {:reply, ref, %{state | requests_in_flight: in_flight}}
   end
 
   @impl GenServer
   def handle_info({ref, result}, state) when is_reference(ref) do
-    requester = Map.get(state.requests_in_flight, ref)
-    GenServer.reply(requester, result)
+    Process.demonitor(ref, [:flush])
+    pid = Map.get(state.requests_in_flight, ref)
+    send(pid, {ref, result})
     {:noreply, %{state | requests_in_flight: Map.delete(state.requests_in_flight, ref)}}
   end
 
