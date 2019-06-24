@@ -70,7 +70,7 @@ defmodule PoliteClient.Client do
     # TODO validate delays: must be integers
     %{
       limiter: fun,
-      state: initial_state,
+      internal_state: initial_state,
       min_delay: Keyword.get(opts, :min_delay, @min_delay),
       max_delay: Keyword.get(opts, :max_delay, @max_delay)
     }
@@ -114,7 +114,11 @@ defmodule PoliteClient.Client do
     Logger.debug("Request duration: #{req_duration_in_ms}", log_meta)
 
     {computed_delay, new_limiter_state} =
-      state.rate_limiter.limiter.(req_duration_in_ms, req_result, state.rate_limiter.state)
+      state.rate_limiter.limiter.(
+        req_duration_in_ms,
+        req_result,
+        state.rate_limiter.internal_state
+      )
 
     Logger.debug(
       "Request delay computed by rate limiter: #{computed_delay}",
@@ -129,7 +133,7 @@ defmodule PoliteClient.Client do
       state
       | available: false,
         requests_in_flight: Map.delete(state.requests_in_flight, task_ref),
-        rate_limiter: %{state.rate_limiter | state: new_limiter_state}
+        rate_limiter: %{state.rate_limiter | internal_state: new_limiter_state}
     }
 
     {:noreply, state}
