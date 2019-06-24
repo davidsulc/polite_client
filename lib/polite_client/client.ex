@@ -8,7 +8,7 @@ defmodule PoliteClient.Client do
   alias PoliteClient.Request
 
   @max_queued 50
-  @min_delay 100
+  @min_delay 1_000
   @max_delay 120_000
 
   @type http_client() ::
@@ -33,7 +33,7 @@ defmodule PoliteClient.Client do
   @impl GenServer
   def init(args) do
     rate_limiter_config =
-      args |> Keyword.get(:rate_limiter, {:constant, 0}) |> rate_limiter_config()
+      args |> Keyword.get(:rate_limiter, {:constant, @min_delay}) |> rate_limiter_config()
 
     state = %{
       # indicates whether a request can be made (given rate limiting): it's not enough
