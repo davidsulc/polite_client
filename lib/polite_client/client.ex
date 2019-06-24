@@ -24,10 +24,10 @@ defmodule PoliteClient.Client do
     GenServer.start_link(__MODULE__, args, args)
   end
 
-  @spec async_request(pid(), Request.t()) ::
+  @spec async_request(GenServer.name(), Request.t()) ::
           reference() | {:queued, reference()} | {:overloaded, :max_queued}
-  def async_request(pid, %Request{} = request) do
-    GenServer.call(pid, {:request, request})
+  def async_request(name, %Request{} = request) do
+    GenServer.call(name, {:request, request})
   end
 
   @impl GenServer

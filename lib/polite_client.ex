@@ -31,7 +31,7 @@ defmodule PoliteClient do
       opts: opts
     }
 
-    case ClientsMgr.get(uri.host) do
+    case ClientsMgr.find_name(uri.host) do
       {:ok, pid} ->
         Client.async_request(pid, request)
 

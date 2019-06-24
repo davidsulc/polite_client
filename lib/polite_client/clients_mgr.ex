@@ -19,8 +19,8 @@ defmodule PoliteClient.ClientsMgr do
     GenServer.call(@name, {:start_client, {key, opts}})
   end
 
-  @spec get(key :: term()) :: {:ok, pid()} | :not_found
-  def get(key) do
+  @spec find_name(key :: term()) :: {:ok, {:via, module(), term()}} | :not_found
+  def find_name(key) do
     GenServer.call(@name, {:find_client, key})
   end
 
@@ -47,11 +47,11 @@ defmodule PoliteClient.ClientsMgr do
 
   @impl GenServer
   def handle_call({:find_client, key}, _from, state) do
-    state
-    |> find_client(key)
-    |> case do
+    via_tuple = via_tuple(state, key)
+
+    case GenServer.whereis(via_tuple) do
       nil -> {:reply, :not_found, state}
-      pid -> {:reply, {:ok, pid}, state}
+      pid when is_pid(pid) -> {:reply, {:ok, via_tuple}, state}
     end
   end
 
