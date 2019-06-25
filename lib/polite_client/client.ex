@@ -5,19 +5,12 @@ defmodule PoliteClient.Client do
 
   require Logger
 
-  alias PoliteClient.Request
+  alias PoliteClient.{RateLimiter, Request}
 
   @max_queued 50
-  @min_delay 1_000
-  @max_delay 120_000
 
   @type http_client() ::
           (Request.t() -> {:ok, request_result :: term()} | {:error, request_result :: term()})
-  @type rate_limiter() ::
-          (request_duration :: non_neg_integer(),
-           request_result :: term(),
-           limiter_state :: term() ->
-             {next_request_delay :: non_neg_integer(), new_limiter_state :: term()})
 
   def start_link(args) do
     # TODO verify args contains :http_client
@@ -32,54 +25,37 @@ defmodule PoliteClient.Client do
 
   @impl GenServer
   def init(args) do
-    rate_limiter_config =
-      args |> Keyword.get(:rate_limiter, {:constant, @min_delay}) |> rate_limiter_config()
+    with {:ok, http_client} <- http_client(args),
+         {:ok, rate_limiter_config} <- rate_limiter_config(args) do
+      state = %{
+        # indicates whether a request can be made (given rate limiting): it's not enough
+        # for the queue to be empty (b/c the last request may be been made too recently)
+        available: true,
+        http_client: http_client,
+        rate_limiter: rate_limiter_config,
+        requests_in_flight: %{},
+        queued_requests: [],
+        max_queued: Keyword.get(args, :max_queued, @max_queued)
+      }
 
-    state = %{
-      # indicates whether a request can be made (given rate limiting): it's not enough
-      # for the queue to be empty (b/c the last request may be been made too recently)
-      available: true,
-      http_client: Keyword.fetch!(args, :http_client),
-      rate_limiter: rate_limiter_config,
-      requests_in_flight: %{},
-      queued_requests: [],
-      max_queued: Keyword.get(args, :max_queued, @max_queued)
-    }
-
-    {:ok, state}
+      {:ok, state}
+    else
+      {:error, reason} -> {:stop, reason}
+    end
   end
 
-  @spec rate_limiter_config({atom() | rate_limiter(), term(), Keyword.t()}) :: map()
-
-  defp rate_limiter_config({:constant, delay, opts}) do
-    opts =
-      opts
-      |> Keyword.put_new(:min_delay, delay)
-      |> Keyword.put_new(:max_delay, delay)
-
-    rate_limiter_config({fn _duration, _request_result, nil -> {delay, nil} end, nil, opts})
+  defp http_client(args) do
+    case Keyword.fetch(args, :http_client) do
+      :error -> {:error, {:http_client, :missing}}
+      # TODO validate arity
+      {:ok, client} when is_function(client) -> {:ok, client}
+      {:ok, _bad_client} -> {:error, {:http_client, :bad_client}}
+    end
   end
 
-  defp rate_limiter_config({:factor, factor, opts}) do
-    rate_limiter_config(
-      {fn duration, _request_result, nil -> {round(duration * factor), nil} end, nil, opts}
-    )
+  defp rate_limiter_config(args) do
+    args |> Keyword.get(:rate_limiter, :default) |> RateLimiter.to_config()
   end
-
-  defp rate_limiter_config({fun, initial_state, opts}) do
-    # TODO validate delays: must be integers
-    %{
-      limiter: fun,
-      internal_state: initial_state,
-      min_delay: Keyword.get(opts, :min_delay, @min_delay),
-      max_delay: Keyword.get(opts, :max_delay, @max_delay)
-    }
-  end
-
-  @spec rate_limiter_config({atom() | rate_limiter(), term()}) :: map()
-
-  defp rate_limiter_config({limiter, value}) when is_atom(limiter) or is_function(limiter, 3),
-    do: rate_limiter_config({limiter, value, []})
 
   @impl GenServer
   def handle_call({:request, request}, {pid, _}, %{available: true} = state) do
@@ -158,6 +134,10 @@ defmodule PoliteClient.Client do
     Logger.error("Received unexpected message: #{inspect(msg)}")
     {:noreply, state}
   end
+
+  # TODO implement terminate
+  # => send cancellation notices for all queued requests
+  # => shut down the tasks for all in-flight requests
 
   defp clamp_delay(%{min_delay: min, max_delay: max}, delay) do
     delay |> max(min) |> min(max)

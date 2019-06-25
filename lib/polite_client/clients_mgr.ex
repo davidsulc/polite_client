@@ -76,6 +76,7 @@ defmodule PoliteClient.ClientsMgr do
     else
       {:started, pid} -> {:error, {:key_conflict, pid}}
       {:error, :max_children} -> {:error, :max_clients}
+      {:error, _} = error -> error
     end
   end
 
