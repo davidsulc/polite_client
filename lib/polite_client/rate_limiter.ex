@@ -31,7 +31,7 @@ defmodule PoliteClient.RateLimiter do
     to_config({fn _duration, _request_result, nil -> {delay, nil} end, nil, opts})
   end
 
-  def to_config({:factor, factor, opts}) do
+  def to_config({:relative, factor, opts}) do
     to_config(
       {fn duration, _request_result, nil -> {round(duration * factor), nil} end, nil, opts}
     )
