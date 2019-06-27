@@ -93,7 +93,8 @@ defmodule PoliteClient.Client do
   def handle_call({:request, request}, {pid, _}, %{available: true} = state) do
     %{http_client: c} = state
     ref = make_ref()
-    in_flight = Map.put(state.requests_in_flight, request_task(c, request), {ref, pid})
+    %Task{ref: task_ref} = task = request_task(c, request)
+    in_flight = Map.put(state.requests_in_flight, task_ref, {ref, pid, task})
     {:reply, ref, %{state | available: false, requests_in_flight: in_flight}}
   end
 
@@ -113,7 +114,7 @@ defmodule PoliteClient.Client do
   def handle_info({task_ref, {req_duration, req_result}}, state) when is_reference(task_ref) do
     Process.demonitor(task_ref, [:flush])
 
-    {ref, pid} = Map.get(state.requests_in_flight, task_ref)
+    {ref, pid, _task} = Map.get(state.requests_in_flight, task_ref)
     send(pid, {ref, req_result})
 
     req_duration_in_ms = div(req_duration, 1_000)
@@ -155,8 +156,8 @@ defmodule PoliteClient.Client do
   @impl GenServer
   def handle_info(:process_next_request, %{queued_requests: [{ref, pid, request} | t]} = state) do
     %{http_client: c} = state
-    task_ref = request_task(c, request)
-    in_flight = Map.put(state.requests_in_flight, task_ref, {ref, pid})
+    %Task{ref: task_ref} = task = request_task(c, request)
+    in_flight = Map.put(state.requests_in_flight, task_ref, {ref, pid, task})
 
     {:noreply, %{state | requests_in_flight: in_flight, queued_requests: t}}
   end
@@ -177,8 +178,7 @@ defmodule PoliteClient.Client do
 
   @spec request_task(http_client :: http_client(), request :: Request.t()) :: reference()
   defp request_task(http_client, request) do
-    %Task{ref: task_ref} = Task.async(fn -> :timer.tc(fn -> http_client.(request) end) end)
-    task_ref
+    Task.async(fn -> :timer.tc(fn -> http_client.(request) end) end)
   end
 
   defp purge_all_requests(%{requests_in_flight: in_flight, queued_requests: queued} = state) do
@@ -191,9 +191,11 @@ defmodule PoliteClient.Client do
     %{state | requests_in_flight: %{}, queued_requests: []}
   end
 
-  defp cancel_in_flight_request({ref, pid}) do
-    # TODO Call Task.shutdown => will requiring storing the Task struct
-    send(pid, {ref, :canceled})
+  defp cancel_in_flight_request({ref, pid, task}) do
+    case Task.shutdown(task) do
+      {:ok, {_duration, result}} -> send(pid, {ref, result})
+      res -> send(pid, {ref, :canceled})
+    end
   end
 
   defp send_cancelation(ref, pid), do: send(pid, {ref, :canceled})
