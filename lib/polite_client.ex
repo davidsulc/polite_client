@@ -41,5 +41,29 @@ defmodule PoliteClient do
     end
   end
 
+  def resume(key) do
+    case ClientsMgr.find_name(key) do
+      {:ok, pid} ->
+        Client.resume(pid)
+
+      # TODO start client dynamically
+      :not_found ->
+        {:error, :no_client}
+    end
+  end
+
+  def suspend(key) do
+    case ClientsMgr.find_name(key) do
+      {:ok, pid} ->
+        Client.suspend(pid)
+
+      # TODO start client dynamically
+      :not_found ->
+        {:error, :no_client}
+    end
+  end
+
+  # TODO suspend all => need registry of all clients
+
   defdelegate start_client(key, opts \\ []), to: ClientsMgr, as: :start
 end

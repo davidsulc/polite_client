@@ -23,11 +23,22 @@ defmodule PoliteClient.Client do
     GenServer.call(name, {:request, request})
   end
 
+  @spec suspend(GenServer.name()) :: :ok
+  def suspend(name) do
+    GenServer.call(name, {:suspend, :manual})
+  end
+
+  @spec resume(GenServer.name()) :: :ok
+  def resume(name) do
+    GenServer.call(name, :resume)
+  end
+
   @impl GenServer
   def init(args) do
     with {:ok, http_client} <- http_client(args),
          {:ok, rate_limiter_config} <- rate_limiter_config(args) do
       state = %{
+        status: :active,
         # indicates whether a request can be made (given rate limiting): it's not enough
         # for the queue to be empty (b/c the last request may be been made too recently)
         available: true,
@@ -55,6 +66,21 @@ defmodule PoliteClient.Client do
 
   defp rate_limiter_config(args) do
     args |> Keyword.get(:rate_limiter, :default) |> RateLimiter.to_config()
+  end
+
+  @impl GenServer
+  def handle_call(:resume, _from, %{status: :suspended} = state) do
+    {:reply, :ok, %{state | status: :active}}
+  end
+
+  @impl GenServer
+  def handle_call(_, _from, %{status: :suspended} = state) do
+    {:reply, {:error, :suspended}, state}
+  end
+
+  @impl GenServer
+  def handle_call({:suspend, :manual}, _from, state) do
+    {:reply, :ok, %{state | status: :suspended}}
   end
 
   @impl GenServer
