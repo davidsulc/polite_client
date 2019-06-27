@@ -50,7 +50,7 @@ defmodule PoliteClient.RateLimiter do
     {:ok, config}
   end
 
-  @spec to_config({atom() | limiter(), term()}) :: t()
+  @spec to_config({atom() | limiter(), term()}) :: {:ok, t()}
 
   def to_config({limiter, value}) when is_atom(limiter) or is_function(limiter, 3),
     do: to_config({limiter, value, []})
