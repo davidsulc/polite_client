@@ -36,7 +36,7 @@ defmodule PoliteClient do
 
   def resume(key), do: with_client(key, &Client.resume/1)
 
-  def suspend(key), do: with_client(key, &Client.suspend/1)
+  def suspend(key, opts \\ []), do: with_client(key, &Client.suspend(&1, opts))
 
   # TODO suspend all => need registry of all clients
 

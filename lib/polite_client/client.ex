@@ -23,9 +23,9 @@ defmodule PoliteClient.Client do
     GenServer.call(name, {:request, request})
   end
 
-  @spec suspend(GenServer.name()) :: :ok
-  def suspend(name) do
-    GenServer.call(name, {:suspend, :manual})
+  @spec suspend(GenServer.name(), Keyword.t()) :: :ok
+  def suspend(name, opts \\ []) do
+    GenServer.call(name, {:suspend, :manual, opts})
   end
 
   @spec resume(GenServer.name()) :: :ok
@@ -79,7 +79,13 @@ defmodule PoliteClient.Client do
   end
 
   @impl GenServer
-  def handle_call({:suspend, :manual}, _from, state) do
+  def handle_call({:suspend, _reason, opts}, _from, state) do
+    state =
+      case Keyword.get(opts, :purge) do
+        true -> purge_all_requests(state)
+        _ -> state
+      end
+
     {:reply, :ok, %{state | status: :suspended}}
   end
 
@@ -175,5 +181,20 @@ defmodule PoliteClient.Client do
     task_ref
   end
 
-  # TODO allow specifying http_client as a module/behaviour
+  defp purge_all_requests(%{requests_in_flight: in_flight, queued_requests: queued} = state) do
+    in_flight
+    |> Map.values()
+    |> Enum.each(&cancel_in_flight_request/1)
+
+    Enum.each(queued, fn {ref, pid, _request} -> send_cancelation(ref, pid) end)
+
+    %{state | requests_in_flight: %{}, queued_requests: []}
+  end
+
+  defp cancel_in_flight_request({ref, pid}) do
+    # TODO Call Task.shutdown => will requiring storing the Task struct
+    send(pid, {ref, :canceled})
+  end
+
+  defp send_cancelation(ref, pid), do: send(pid, {ref, :canceled})
 end
