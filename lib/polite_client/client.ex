@@ -168,9 +168,8 @@ defmodule PoliteClient.Client do
     {:noreply, state}
   end
 
-  # TODO implement terminate
-  # => send cancellation notices for all queued requests
-  # => shut down the tasks for all in-flight requests
+  @impl GenServer
+  def terminate(_reason, state), do: purge_all_requests(state)
 
   defp clamp_delay(%{min_delay: min, max_delay: max}, delay) do
     delay |> max(min) |> min(max)
