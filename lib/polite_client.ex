@@ -31,39 +31,25 @@ defmodule PoliteClient do
       opts: opts
     }
 
-    case ClientsMgr.find_name(uri.host) do
-      {:ok, via_tuple} ->
-        Client.async_request(via_tuple, request)
-
-      # TODO start client dynamically
-      :not_found ->
-        {:error, :no_client}
-    end
+    with_client(uri.host, &Client.async_request(&1, request))
   end
 
-  def resume(key) do
-    case ClientsMgr.find_name(key) do
-      {:ok, via_tuple} ->
-        Client.resume(via_tuple)
+  def resume(key), do: with_client(key, &Client.resume/1)
 
-      # TODO start client dynamically
-      :not_found ->
-        {:error, :no_client}
-    end
-  end
-
-  def suspend(key) do
-    case ClientsMgr.find_name(key) do
-      {:ok, via_tuple} ->
-        Client.suspend(via_tuple)
-
-      # TODO start client dynamically
-      :not_found ->
-        {:error, :no_client}
-    end
-  end
+  def suspend(key), do: with_client(key, &Client.suspend/1)
 
   # TODO suspend all => need registry of all clients
+
+  defp with_client(key, fun) do
+    case ClientsMgr.find_name(key) do
+      {:ok, via_tuple} ->
+        fun.(via_tuple)
+
+      # TODO start client dynamically
+      :not_found ->
+        {:error, :no_client}
+    end
+  end
 
   defdelegate start_client(key, opts \\ []), to: ClientsMgr, as: :start
 end
