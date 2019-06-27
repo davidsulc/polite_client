@@ -32,8 +32,8 @@ defmodule PoliteClient do
     }
 
     case ClientsMgr.find_name(uri.host) do
-      {:ok, pid} ->
-        Client.async_request(pid, request)
+      {:ok, via_tuple} ->
+        Client.async_request(via_tuple, request)
 
       # TODO start client dynamically
       :not_found ->
@@ -43,8 +43,8 @@ defmodule PoliteClient do
 
   def resume(key) do
     case ClientsMgr.find_name(key) do
-      {:ok, pid} ->
-        Client.resume(pid)
+      {:ok, via_tuple} ->
+        Client.resume(via_tuple)
 
       # TODO start client dynamically
       :not_found ->
@@ -54,8 +54,8 @@ defmodule PoliteClient do
 
   def suspend(key) do
     case ClientsMgr.find_name(key) do
-      {:ok, pid} ->
-        Client.suspend(pid)
+      {:ok, via_tuple} ->
+        Client.suspend(via_tuple)
 
       # TODO start client dynamically
       :not_found ->
