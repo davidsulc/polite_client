@@ -18,7 +18,7 @@ defmodule PoliteClient.Partition do
   end
 
   @spec async_request(GenServer.name(), Request.t()) ::
-          reference() | {:queued, reference()} | {:overloaded, :max_queued}
+          reference() | {:queued, reference()} | {:error, :max_queued}
   def async_request(name, %Request{} = request) do
     GenServer.call(name, {:request, request})
   end
@@ -90,29 +90,22 @@ defmodule PoliteClient.Partition do
   end
 
   @impl GenServer
-  def handle_call({:request, request}, {pid, _}, %{available: true} = state) do
-    ref = make_ref()
-    # TODO add partition key
-    allocated_request = %AllocatedRequest{ref: ref, owner: pid}
-
-    state = %{
-      state
-      | available: false,
-        queued_requests: [{allocated_request, request} | state.queued_requests]
-    }
-
-    {:reply, allocated_request, process_next_request(state)}
-  end
-
-  @impl GenServer
-  def handle_call({:request, request}, {pid, _}, %{available: false} = state) do
-    ref = make_ref()
-
+  def handle_call({:request, request}, {pid, _}, state) do
     if length(state.queued_requests) >= state.max_queued do
-      {:reply, {:overloaded, :max_queued}, state}
+      {:reply, {:error, :max_queued}, state}
     else
-      {:reply, {:queued, ref},
-       %{state | queued_requests: state.queued_requests ++ [{ref, pid, request}]}}
+      allocated_request = %AllocatedRequest{ref: make_ref(), owner: pid}
+
+      state =
+        state
+        |> Map.replace!(:queued_requests, state.queued_requests ++ [{allocated_request, request}])
+        |> case do
+          %{available: true} = state -> process_next_request(state)
+          state -> state
+        end
+        |> Map.replace!(:available, false)
+
+      {:reply, allocated_request, state}
     end
   end
 
@@ -160,7 +153,7 @@ defmodule PoliteClient.Partition do
   end
 
   @impl GenServer
-  def handle_info(:process_next_request, %{queued_requests: [_]} = state) do
+  def handle_info(:process_next_request, %{queued_requests: [_ | _]} = state) do
     {:noreply, process_next_request(state)}
   end
 
