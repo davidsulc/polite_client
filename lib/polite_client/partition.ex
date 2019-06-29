@@ -1,6 +1,12 @@
 defmodule PoliteClient.Partition do
   @moduledoc false
 
+  # TODO document known limitation: partition doesn't monitor caller, so queued
+  # requests will stay in the queue if their caller dies in the meantime. (Caller's
+  # liveliness is only checked when spawning the request task.) Therefore, it's
+  # possible to refuse new requests due to max queue size, even though some of those
+  # requests won't end up being made.
+
   use GenServer
 
   require Logger
