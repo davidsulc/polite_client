@@ -148,12 +148,7 @@ defmodule PoliteClient.Partition do
   end
 
   @impl GenServer
-  def handle_info(:process_next_request, %{queued_requests: []} = state) do
-    {:noreply, %{state | available: true}}
-  end
-
-  @impl GenServer
-  def handle_info(:process_next_request, %{queued_requests: [_ | _]} = state) do
+  def handle_info(:process_next_request, state) do
     {:noreply, process_next_request(state)}
   end
 
@@ -166,11 +161,20 @@ defmodule PoliteClient.Partition do
   @impl GenServer
   def terminate(_reason, state), do: purge_all_requests(state)
 
+  defp process_next_request(%{queued_requests: []} = state) do
+    %{state | available: true}
+  end
+
   defp process_next_request(%{queued_requests: q} = state) do
-    [{%AllocatedRequest{} = allocated_request, request} | t] = q
-    %Task{ref: task_ref} = request_task(state.http_client, request)
-    in_flight = Map.put(state.requests_in_flight, task_ref, allocated_request)
-    %{state | requests_in_flight: in_flight, queued_requests: t}
+    [{%AllocatedRequest{owner: pid} = allocated_request, request} | t] = q
+
+    if Process.alive?(pid) do
+      %Task{ref: task_ref} = request_task(state.http_client, request)
+      in_flight = Map.put(state.requests_in_flight, task_ref, allocated_request)
+      %{state | requests_in_flight: in_flight, queued_requests: t}
+    else
+      process_next_request(%{state | queued_requests: t})
+    end
   end
 
   defp clamp_delay(%{min_delay: min, max_delay: max}, delay) do
