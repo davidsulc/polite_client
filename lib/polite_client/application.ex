@@ -5,14 +5,19 @@ defmodule PoliteClient.Application do
 
   use Application
 
-  @registry Registry.PoliteClient
+  @partition_supervisor_name PoliteClient.PartitionsSupervisor
+  @registry_name Registry.PoliteClient
+  @task_supervisor_name PoliteClient.RequestTaskSupervisor
 
   def start(_type, _args) do
     children = [
-      {Registry, keys: :unique, name: @registry},
+      {Registry, keys: :unique, name: @registry_name},
       # TODO document: call pass in `:max_partitions` value to limit concurrency
       # (wraps DynamicSupervisor's :max_children value)
-      {PoliteClient.AppSup, registry: @registry}
+      {PoliteClient.AppSup,
+       partition_supervisor_name: @partition_supervisor_name,
+       registry: @registry_name,
+       task_supervisor: @task_supervisor_name}
     ]
 
     opts = [strategy: :rest_for_one, name: PoliteClient.Supervisor]
