@@ -3,7 +3,7 @@ defmodule PoliteClient do
   Documentation for PoliteClient.
   """
 
-  alias PoliteClient.{Partition, PartitionsMgr, Request}
+  alias PoliteClient.{AllocatedRequest, Partition, PartitionsMgr, Request}
 
   # Document: to "convert" into a sync request:
   # case async_request(method, url, headers, body, opts) do
@@ -34,13 +34,15 @@ defmodule PoliteClient do
     with_partition(uri.host, &Partition.async_request(&1, request))
   end
 
+  def allocated?(%AllocatedRequest{partition: key, ref: ref}) do
+    PartitionsMgr.allocated?(key, ref)
+  end
+
   def resume(key), do: with_partition(key, &Partition.resume/1)
 
   def suspend(key, opts \\ [])
   def suspend(:all, opts), do: PartitionsMgr.suspend_all(opts)
   def suspend(key, opts), do: with_partition(key, &Partition.suspend(&1, opts))
-
-  # TODO suspend all => need registry of all partitions
 
   defp with_partition(key, fun) do
     case PartitionsMgr.find_name(key) do

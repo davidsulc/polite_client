@@ -24,6 +24,11 @@ defmodule PoliteClient.PartitionsMgr do
     GenServer.call(@name, {:find_partition, key})
   end
 
+  def allocated?(key, ref) do
+    GenServer.call(@name, {:allocated?, key, ref})
+  end
+
+  @spec suspend_all(opts :: Keyword.t()) :: :ok
   def suspend_all(opts \\ []) do
     GenServer.call(@name, {:suspend_all, opts})
   end
@@ -65,6 +70,16 @@ defmodule PoliteClient.PartitionsMgr do
   end
 
   @impl GenServer
+  def handle_call({:allocated?, key, ref}, _from, state) do
+    allocated? =
+      state
+      |> find_partition(key)
+      |> Partition.allocated?(ref)
+
+    {:reply, allocated?, state}
+  end
+
+  @impl GenServer
   def handle_call({:suspend_all, opts}, _from, state) do
     state.partition_supervisor
     |> DynamicSupervisor.which_children()
@@ -85,6 +100,7 @@ defmodule PoliteClient.PartitionsMgr do
     partition_opts =
       opts
       |> Keyword.put(:name, via_tuple)
+      |> Keyword.put(:key, key)
       |> Keyword.put(:task_supervisor, state.task_supervisor)
 
     child_spec =

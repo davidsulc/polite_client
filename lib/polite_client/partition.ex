@@ -42,6 +42,11 @@ defmodule PoliteClient.Partition do
     GenServer.call(name, {:request, request})
   end
 
+  @spec allocated?(GenServe.name(), reference()) :: boolean()
+  def allocated?(name, ref) do
+    GenServer.call(name, {:allocated?, ref})
+  end
+
   @spec suspend(GenServer.name(), Keyword.t()) :: :ok
   def suspend(name, opts \\ []) do
     GenServer.call(name, {:suspend, :manual, opts})
@@ -57,6 +62,7 @@ defmodule PoliteClient.Partition do
     with {:ok, http_client} <- http_client(args),
          {:ok, rate_limiter_config} <- rate_limiter_config(args) do
       state = %{
+        key: Keyword.fetch!(args, :key),
         status: :active,
         # indicates whether a request can be made (given rate limiting): it's not enough
         # for the queue to be empty (b/c the last request may have been made too recently)
@@ -94,6 +100,11 @@ defmodule PoliteClient.Partition do
   end
 
   @impl GenServer
+  def handle_call({:allocated?, ref}, _from, state) do
+    {:reply, queued?(ref, state) || in_flight?(ref, state), state}
+  end
+
+  @impl GenServer
   def handle_call(_, _from, %{status: :suspended} = state) do
     {:reply, {:error, :suspended}, state}
   end
@@ -114,7 +125,11 @@ defmodule PoliteClient.Partition do
     if length(state.queued_requests) >= state.max_queued do
       {:reply, {:error, :max_queued}, state}
     else
-      allocated_request = %AllocatedRequest{ref: make_ref(), owner: pid}
+      allocated_request = %AllocatedRequest{
+        ref: make_ref(),
+        owner: pid,
+        partition: state.key
+      }
 
       pending_request = %PendingRequest{
         allocation: allocated_request,
@@ -221,6 +236,19 @@ defmodule PoliteClient.Partition do
 
   @impl GenServer
   def terminate(_reason, state), do: purge_all_requests(state)
+
+  defp queued?(ref, state) when is_reference(ref),
+    do: has_pending_request_with_ref?(state.queued_requests, ref)
+
+  defp in_flight?(ref, state) when is_reference(ref),
+    do: has_pending_request_with_ref?(state.requests_in_flight, ref)
+
+  defp has_pending_request_with_ref?(items, ref) do
+    Enum.any?(items, fn
+      %PendingRequest{allocation: %AllocatedRequest{ref: ^ref}} -> true
+      _ -> false
+    end)
+  end
 
   defp process_next_request(%{queued_requests: []} = state) do
     %{state | available: true}

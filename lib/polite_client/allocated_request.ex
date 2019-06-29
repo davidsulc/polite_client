@@ -1,7 +1,8 @@
 defmodule PoliteClient.AllocatedRequest do
   @type t :: %__MODULE__{
-          ref: reference() | nil,
-          owner: pid() | nil
+          ref: reference(),
+          owner: pid(),
+          partition: String.t()
         }
 
   @doc """
@@ -13,7 +14,8 @@ defmodule PoliteClient.AllocatedRequest do
   It contains these fields:
     * `:ref` - the reference identifying the allocated request
     * `:owner` - the PID of the process that made the request
+    * `:partition` - the key of the partition in which the request has been allocated
   """
-  @enforce_keys [:ref, :owner]
-  defstruct ref: nil, owner: nil
+  @enforce_keys [:ref, :owner, :partition]
+  defstruct [:ref, :owner, :partition]
 end
