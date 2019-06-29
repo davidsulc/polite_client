@@ -36,7 +36,9 @@ defmodule PoliteClient do
 
   def resume(key), do: with_partition(key, &Partition.resume/1)
 
-  def suspend(key, opts \\ []), do: with_partition(key, &Partition.suspend(&1, opts))
+  def suspend(key, opts \\ [])
+  def suspend(:all, opts), do: PartitionsMgr.suspend_all(opts)
+  def suspend(key, opts), do: with_partition(key, &Partition.suspend(&1, opts))
 
   # TODO suspend all => need registry of all partitions
 

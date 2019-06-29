@@ -8,14 +8,17 @@ defmodule PoliteClient.AppSup do
   @impl Supervisor
   def init(args) do
     task_supervisor = Keyword.fetch!(args, :task_supervisor)
+    partition_supervisor = Keyword.fetch!(args, :partition_supervisor_name)
 
     children = [
       {Task.Supervisor, name: task_supervisor},
       {PoliteClient.PartitionsMgr,
-       registry: Keyword.fetch!(args, :registry), task_supervisor: task_supervisor},
+       registry: Keyword.fetch!(args, :registry),
+       task_supervisor: task_supervisor,
+       partition_supervisor: partition_supervisor},
       {DynamicSupervisor,
        strategy: :one_for_one,
-       name: Keyword.fetch!(args, :partition_supervisor_name),
+       name: partition_supervisor,
        max_children: Keyword.get(args, :max_partitions, :infinity)}
     ]
 

@@ -24,10 +24,15 @@ defmodule PoliteClient.PartitionsMgr do
     GenServer.call(@name, {:find_partition, key})
   end
 
+  def suspend_all(opts \\ []) do
+    GenServer.call(@name, {:suspend_all, opts})
+  end
+
   @impl GenServer
   def init(args) do
     {:ok,
      %{
+       partition_supervisor: Keyword.fetch!(args, :partition_supervisor),
        registry: Keyword.fetch!(args, :registry),
        task_supervisor: Keyword.fetch!(args, :task_supervisor)
      }}
@@ -57,6 +62,15 @@ defmodule PoliteClient.PartitionsMgr do
       nil -> {:reply, :not_found, state}
       pid when is_pid(pid) -> {:reply, {:ok, via_tuple}, state}
     end
+  end
+
+  @impl GenServer
+  def handle_call({:suspend_all, opts}, _from, state) do
+    state.partition_supervisor
+    |> DynamicSupervisor.which_children()
+    |> Enum.each(fn {_, pid, _, _} -> Partition.suspend(pid, opts) end)
+
+    {:reply, :ok, state}
   end
 
   defp find_partition(state, key) do
