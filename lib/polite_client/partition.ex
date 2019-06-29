@@ -18,7 +18,7 @@ defmodule PoliteClient.Partition do
   end
 
   @spec async_request(GenServer.name(), Request.t()) ::
-          reference() | {:queued, reference()} | {:error, :max_queued}
+          AllocatedRequest.t() | {:error, :max_queued | :suspended}
   def async_request(name, %Request{} = request) do
     GenServer.call(name, {:request, request})
   end
@@ -177,7 +177,7 @@ defmodule PoliteClient.Partition do
     delay |> max(min) |> min(max)
   end
 
-  @spec request_task(http_client :: http_client(), request :: Request.t()) :: reference()
+  @spec request_task(http_client :: http_client(), request :: Request.t()) :: Task.t()
   defp request_task(http_client, request) do
     Task.async(fn -> :timer.tc(fn -> http_client.(request) end) end)
   end
