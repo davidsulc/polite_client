@@ -5,7 +5,7 @@ defmodule PoliteClient.Partition do
 
   require Logger
 
-  alias PoliteClient.{RateLimiter, Request}
+  alias PoliteClient.{AllocatedRequest, RateLimiter, Request}
 
   @max_queued 50
 
@@ -91,11 +91,17 @@ defmodule PoliteClient.Partition do
 
   @impl GenServer
   def handle_call({:request, request}, {pid, _}, %{available: true} = state) do
-    %{http_client: c} = state
     ref = make_ref()
-    %Task{ref: task_ref} = task = request_task(c, request)
-    in_flight = Map.put(state.requests_in_flight, task_ref, {ref, pid, task})
-    {:reply, ref, %{state | available: false, requests_in_flight: in_flight}}
+    # TODO add partition key
+    allocated_request = %AllocatedRequest{ref: ref, owner: pid}
+
+    state = %{
+      state
+      | available: false,
+        queued_requests: [{allocated_request, request} | state.queued_requests]
+    }
+
+    {:reply, allocated_request, process_next_request(state)}
   end
 
   @impl GenServer
@@ -114,7 +120,7 @@ defmodule PoliteClient.Partition do
   def handle_info({task_ref, {req_duration, req_result}}, state) when is_reference(task_ref) do
     Process.demonitor(task_ref, [:flush])
 
-    {ref, pid, _task} = Map.get(state.requests_in_flight, task_ref)
+    %AllocatedRequest{ref: ref, owner: pid} = Map.get(state.requests_in_flight, task_ref)
     send(pid, {ref, req_result})
 
     req_duration_in_ms = div(req_duration, 1_000)
@@ -154,12 +160,8 @@ defmodule PoliteClient.Partition do
   end
 
   @impl GenServer
-  def handle_info(:process_next_request, %{queued_requests: [{ref, pid, request} | t]} = state) do
-    %{http_client: c} = state
-    %Task{ref: task_ref} = task = request_task(c, request)
-    in_flight = Map.put(state.requests_in_flight, task_ref, {ref, pid, task})
-
-    {:noreply, %{state | requests_in_flight: in_flight, queued_requests: t}}
+  def handle_info(:process_next_request, %{queued_requests: [_]} = state) do
+    {:noreply, process_next_request(state)}
   end
 
   @impl GenServer
@@ -170,6 +172,13 @@ defmodule PoliteClient.Partition do
 
   @impl GenServer
   def terminate(_reason, state), do: purge_all_requests(state)
+
+  defp process_next_request(%{queued_requests: q} = state) do
+    [{%AllocatedRequest{} = allocated_request, request} | t] = q
+    %Task{ref: task_ref} = request_task(state.http_client, request)
+    in_flight = Map.put(state.requests_in_flight, task_ref, allocated_request)
+    %{state | requests_in_flight: in_flight, queued_requests: t}
+  end
 
   defp clamp_delay(%{min_delay: min, max_delay: max}, delay) do
     delay |> max(min) |> min(max)
