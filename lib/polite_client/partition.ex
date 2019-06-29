@@ -13,7 +13,20 @@ defmodule PoliteClient.Partition do
 
   alias PoliteClient.{AllocatedRequest, RateLimiter, Request}
 
+  defmodule PendingRequest do
+    @type t :: %__MODULE__{
+            allocation: AllocatedRequest.t(),
+            request: Request.t(),
+            task: nil | Task.t(),
+            attempts: non_neg_integer()
+          }
+
+    @enforce_keys [:allocation, :request]
+    defstruct allocation: nil, request: nil, task: nil, attempts: 0
+  end
+
   @max_queued 50
+  @task_attempts 3
 
   @type http_client() ::
           (Request.t() -> {:ok, request_result :: term()} | {:error, request_result :: term()})
@@ -52,7 +65,8 @@ defmodule PoliteClient.Partition do
         rate_limiter: rate_limiter_config,
         requests_in_flight: %{},
         queued_requests: [],
-        max_queued: Keyword.get(args, :max_queued, @max_queued)
+        max_queued: Keyword.get(args, :max_queued, @max_queued),
+        task_supervisor: Keyword.fetch!(args, :task_supervisor)
       }
 
       {:ok, state}
@@ -102,9 +116,17 @@ defmodule PoliteClient.Partition do
     else
       allocated_request = %AllocatedRequest{ref: make_ref(), owner: pid}
 
+      pending_request = %PendingRequest{
+        allocation: allocated_request,
+        request: request
+      }
+
       state =
         state
-        |> Map.replace!(:queued_requests, state.queued_requests ++ [{allocated_request, request}])
+        |> Map.replace!(
+          :queued_requests,
+          state.queued_requests ++ [pending_request]
+        )
         |> case do
           %{available: true} = state -> process_next_request(state)
           state -> state
@@ -119,7 +141,11 @@ defmodule PoliteClient.Partition do
   def handle_info({task_ref, {req_duration, req_result}}, state) when is_reference(task_ref) do
     Process.demonitor(task_ref, [:flush])
 
-    %AllocatedRequest{ref: ref, owner: pid} = Map.get(state.requests_in_flight, task_ref)
+    %AllocatedRequest{ref: ref, owner: pid} =
+      state.requests_in_flight
+      |> Map.get(task_ref)
+      |> Map.get(:allocation)
+
     send(pid, {ref, req_result})
 
     req_duration_in_ms = div(req_duration, 1_000)
@@ -154,6 +180,35 @@ defmodule PoliteClient.Partition do
   end
 
   @impl GenServer
+  def handle_info({:DOWN, task_ref, :process, _task_pid, {reason, _}}, state)
+      when is_reference(task_ref) do
+    %PendingRequest{
+      allocation: %AllocatedRequest{ref: ref, owner: pid},
+      attempts: attempts
+    } = pending_req = Map.get(state.requests_in_flight, task_ref)
+
+    state =
+      if attempts > @task_attempts do
+        Logger.error("Task failed", request_ref: ref)
+
+        send(pid, {ref, {:error, {:task_failed, Map.get(reason, :message, "unknown")}}})
+
+        state
+      else
+        Logger.debug("Retrying request #{inspect(ref)}")
+
+        %{
+          state
+          | queued_requests: [%{pending_req | attempts: attempts + 1} | state.queued_requests]
+        }
+      end
+
+    state = %{state | requests_in_flight: Map.delete(state.requests_in_flight, task_ref)}
+
+    {:noreply, process_next_request(state)}
+  end
+
+  @impl GenServer
   def handle_info(:process_next_request, state) do
     {:noreply, process_next_request(state)}
   end
@@ -172,11 +227,23 @@ defmodule PoliteClient.Partition do
   end
 
   defp process_next_request(%{queued_requests: q} = state) do
-    [{%AllocatedRequest{owner: pid} = allocated_request, request} | t] = q
+    [%PendingRequest{allocation: allocation} = next | t] = q
+    %AllocatedRequest{owner: pid} = allocation
 
     if Process.alive?(pid) do
-      %Task{ref: task_ref} = request_task(state.http_client, request)
-      in_flight = Map.put(state.requests_in_flight, task_ref, allocated_request)
+      %Task{ref: task_ref} =
+        task =
+        Task.Supervisor.async_nolink(state.task_supervisor, fn ->
+          :timer.tc(fn -> state.http_client.(next.request) end)
+        end)
+
+      in_flight =
+        Map.put(state.requests_in_flight, task_ref, %{
+          next
+          | task: task,
+            attempts: next.attempts + 1
+        })
+
       %{state | requests_in_flight: in_flight, queued_requests: t}
     else
       process_next_request(%{state | queued_requests: t})
@@ -187,22 +254,21 @@ defmodule PoliteClient.Partition do
     delay |> max(min) |> min(max)
   end
 
-  @spec request_task(http_client :: http_client(), request :: Request.t()) :: Task.t()
-  defp request_task(http_client, request) do
-    Task.async(fn -> :timer.tc(fn -> http_client.(request) end) end)
-  end
-
   defp purge_all_requests(%{requests_in_flight: in_flight, queued_requests: queued} = state) do
     in_flight
     |> Map.values()
     |> Enum.each(&cancel_in_flight_request/1)
 
-    Enum.each(queued, fn {ref, pid, _request} -> send_cancelation(ref, pid) end)
+    Enum.each(queued, fn %PendingRequest{allocation: %AllocatedRequest{ref: ref, owner: pid}} ->
+      send_cancelation(ref, pid)
+    end)
 
     %{state | requests_in_flight: %{}, queued_requests: []}
   end
 
-  defp cancel_in_flight_request({ref, pid, task}) do
+  defp cancel_in_flight_request(%PendingRequest{task: task} = pending_req) do
+    %AllocatedRequest{ref: ref, owner: pid} = pending_req.allocation
+
     case Task.shutdown(task) do
       {:ok, {_duration, result}} -> send(pid, {ref, result})
       _res -> send(pid, {ref, :canceled})

@@ -26,7 +26,11 @@ defmodule PoliteClient.PartitionsMgr do
 
   @impl GenServer
   def init(args) do
-    {:ok, %{registry: Keyword.fetch!(args, :registry)}}
+    {:ok,
+     %{
+       registry: Keyword.fetch!(args, :registry),
+       task_supervisor: Keyword.fetch!(args, :task_supervisor)
+     }}
   end
 
   @impl GenServer
@@ -64,10 +68,15 @@ defmodule PoliteClient.PartitionsMgr do
   defp start_partition(state, key, opts) do
     via_tuple = via_tuple(state, key)
 
+    partition_opts =
+      opts
+      |> Keyword.put(:name, via_tuple)
+      |> Keyword.put(:task_supervisor, state.task_supervisor)
+
     child_spec =
       Supervisor.child_spec(Partition,
         id: "partition_#{inspect(key)}",
-        start: {Partition, :start_link, [Keyword.put(opts, :name, via_tuple)]}
+        start: {Partition, :start_link, [partition_opts]}
       )
 
     with {:started, nil} <- {:started, find_partition(state, key)},
