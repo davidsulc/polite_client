@@ -1,9 +1,9 @@
-defmodule PoliteClient.ClientsMgr do
+defmodule PoliteClient.PartitionsMgr do
   use GenServer
 
   require Logger
 
-  alias PoliteClient.{Client, ClientsSupervisor}
+  alias PoliteClient.{Partition, PartitionsSupervisor}
 
   @name __MODULE__
 
@@ -14,14 +14,14 @@ defmodule PoliteClient.ClientsMgr do
   @spec start(key :: term(), opts :: Keyword.t()) ::
           :ok
           | {:error, {:key_conflict, pid()}}
-          | {:error, :max_clients}
+          | {:error, :max_partitions}
   def start(key, opts \\ []) do
-    GenServer.call(@name, {:start_client, {key, opts}})
+    GenServer.call(@name, {:start_partition, {key, opts}})
   end
 
   @spec find_name(key :: term()) :: {:ok, {:via, module(), term()}} | :not_found
   def find_name(key) do
-    GenServer.call(@name, {:find_client, key})
+    GenServer.call(@name, {:find_partition, key})
   end
 
   @impl GenServer
@@ -30,23 +30,23 @@ defmodule PoliteClient.ClientsMgr do
   end
 
   @impl GenServer
-  def handle_call({:start_client, {key, opts}}, _from, state) do
+  def handle_call({:start_partition, {key, opts}}, _from, state) do
     state
-    |> find_client(key)
+    |> find_partition(key)
     |> case do
       nil ->
-        case start_client(state, key, opts) do
+        case start_partition(state, key, opts) do
           :ok -> {:reply, :ok, state}
           {:error, _} = error -> {:reply, error, state}
         end
 
-      client_pid ->
-        {:reply, {:error, {:already_started, client_pid}}, state}
+      partition_pid ->
+        {:reply, {:error, {:already_started, partition_pid}}, state}
     end
   end
 
   @impl GenServer
-  def handle_call({:find_client, key}, _from, state) do
+  def handle_call({:find_partition, key}, _from, state) do
     via_tuple = via_tuple(state, key)
 
     case GenServer.whereis(via_tuple) do
@@ -55,27 +55,27 @@ defmodule PoliteClient.ClientsMgr do
     end
   end
 
-  defp find_client(state, key) do
+  defp find_partition(state, key) do
     state
     |> via_tuple(key)
     |> GenServer.whereis()
   end
 
-  defp start_client(state, key, opts) do
+  defp start_partition(state, key, opts) do
     via_tuple = via_tuple(state, key)
 
     child_spec =
-      Supervisor.child_spec(Client,
-        id: "client_#{inspect(key)}",
-        start: {Client, :start_link, [Keyword.put(opts, :name, via_tuple)]}
+      Supervisor.child_spec(Partition,
+        id: "partition_#{inspect(key)}",
+        start: {Partition, :start_link, [Keyword.put(opts, :name, via_tuple)]}
       )
 
-    with {:started, nil} <- {:started, find_client(state, key)},
-         {:ok, _pid} <- DynamicSupervisor.start_child(ClientsSupervisor, child_spec) do
+    with {:started, nil} <- {:started, find_partition(state, key)},
+         {:ok, _pid} <- DynamicSupervisor.start_child(PartitionsSupervisor, child_spec) do
       :ok
     else
       {:started, pid} -> {:error, {:key_conflict, pid}}
-      {:error, :max_children} -> {:error, :max_clients}
+      {:error, :max_children} -> {:error, :max_partitions}
       {:error, _} = error -> error
     end
   end

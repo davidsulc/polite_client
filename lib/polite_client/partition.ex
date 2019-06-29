@@ -1,4 +1,4 @@
-defmodule PoliteClient.Client do
+defmodule PoliteClient.Partition do
   @moduledoc false
 
   use GenServer
@@ -193,7 +193,7 @@ defmodule PoliteClient.Client do
   defp cancel_in_flight_request({ref, pid, task}) do
     case Task.shutdown(task) do
       {:ok, {_duration, result}} -> send(pid, {ref, result})
-      res -> send(pid, {ref, :canceled})
+      _res -> send(pid, {ref, :canceled})
     end
   end
 

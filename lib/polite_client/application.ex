@@ -10,7 +10,7 @@ defmodule PoliteClient.Application do
   def start(_type, _args) do
     children = [
       {Registry, keys: :unique, name: @registry},
-      # TODO document: call pass in `:max_clients` value to limit concurrency
+      # TODO document: call pass in `:max_partitions` value to limit concurrency
       # (wraps DynamicSupervisor's :max_children value)
       {PoliteClient.AppSup, registry: @registry}
     ]

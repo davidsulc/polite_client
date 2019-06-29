@@ -3,7 +3,7 @@ defmodule PoliteClient do
   Documentation for PoliteClient.
   """
 
-  alias PoliteClient.{Client, ClientsMgr, Request}
+  alias PoliteClient.{Partition, PartitionsMgr, Request}
 
   # Document: to "convert" into a sync request:
   # case async_request(method, url, headers, body, opts) do
@@ -31,25 +31,25 @@ defmodule PoliteClient do
       opts: opts
     }
 
-    with_client(uri.host, &Client.async_request(&1, request))
+    with_partition(uri.host, &Partition.async_request(&1, request))
   end
 
-  def resume(key), do: with_client(key, &Client.resume/1)
+  def resume(key), do: with_partition(key, &Partition.resume/1)
 
-  def suspend(key, opts \\ []), do: with_client(key, &Client.suspend(&1, opts))
+  def suspend(key, opts \\ []), do: with_partition(key, &Partition.suspend(&1, opts))
 
-  # TODO suspend all => need registry of all clients
+  # TODO suspend all => need registry of all partitions
 
-  defp with_client(key, fun) do
-    case ClientsMgr.find_name(key) do
+  defp with_partition(key, fun) do
+    case PartitionsMgr.find_name(key) do
       {:ok, via_tuple} ->
         fun.(via_tuple)
 
-      # TODO start client dynamically
+      # TODO start partition dynamically
       :not_found ->
-        {:error, :no_client}
+        {:error, :no_partition}
     end
   end
 
-  defdelegate start_client(key, opts \\ []), to: ClientsMgr, as: :start
+  defdelegate start_partition(key, opts \\ []), to: PartitionsMgr, as: :start
 end
