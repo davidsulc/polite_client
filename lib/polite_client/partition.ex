@@ -40,7 +40,7 @@ defmodule PoliteClient.Partition do
       state = %{
         status: :active,
         # indicates whether a request can be made (given rate limiting): it's not enough
-        # for the queue to be empty (b/c the last request may be been made too recently)
+        # for the queue to be empty (b/c the last request may have been made too recently)
         available: true,
         http_client: http_client,
         rate_limiter: rate_limiter_config,
