@@ -154,35 +154,41 @@ defmodule PoliteClient.Partition do
   end
 
   @impl GenServer
+  def handle_call(
+        {:request, _request},
+        _from,
+        %{queued_requests: queued, max_queued: max} = state
+      )
+      when length(queued) >= max do
+    {:reply, {:error, :max_queued}, state}
+  end
+
+  @impl GenServer
   def handle_call({:request, request}, {pid, _}, state) do
-    if length(state.queued_requests) >= state.max_queued do
-      {:reply, {:error, :max_queued}, state}
-    else
-      allocated_request = %AllocatedRequest{
-        ref: make_ref(),
-        owner: pid,
-        partition: state.key
-      }
+    allocated_request = %AllocatedRequest{
+      ref: make_ref(),
+      owner: pid,
+      partition: state.key
+    }
 
-      pending_request = %PendingRequest{
-        allocation: allocated_request,
-        request: request
-      }
+    pending_request = %PendingRequest{
+      allocation: allocated_request,
+      request: request
+    }
 
-      state =
-        state
-        |> Map.replace!(
-          :queued_requests,
-          state.queued_requests ++ [pending_request]
-        )
-        |> case do
-          %{available: true} = state -> process_next_request(state)
-          state -> state
-        end
-        |> Map.replace!(:available, false)
+    state =
+      state
+      |> Map.replace!(
+        :queued_requests,
+        state.queued_requests ++ [pending_request]
+      )
+      |> case do
+        %{available: true} = state -> process_next_request(state)
+        state -> state
+      end
+      |> Map.replace!(:available, false)
 
-      {:reply, allocated_request, state}
-    end
+    {:reply, allocated_request, state}
   end
 
   @impl GenServer
