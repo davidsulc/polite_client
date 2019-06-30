@@ -28,6 +28,10 @@ defmodule PoliteClient.PartitionsMgr do
     GenServer.call(@name, {:allocated?, key, ref})
   end
 
+  def cancel(key, ref) do
+    GenServer.call(@name, {:cancel, key, ref})
+  end
+
   @spec suspend_all(opts :: Keyword.t()) :: :ok
   def suspend_all(opts \\ []) do
     GenServer.call(@name, {:suspend_all, opts})
@@ -77,6 +81,16 @@ defmodule PoliteClient.PartitionsMgr do
       |> Partition.allocated?(ref)
 
     {:reply, allocated?, state}
+  end
+
+  @impl GenServer
+  def handle_call({:cancel, key, ref}, _from, state) do
+    cancelation_result =
+      state
+      |> find_partition(key)
+      |> Partition.cancel(ref)
+
+    {:reply, cancelation_result, state}
   end
 
   @impl GenServer

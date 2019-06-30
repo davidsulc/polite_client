@@ -47,6 +47,11 @@ defmodule PoliteClient.Partition do
     GenServer.call(name, {:allocated?, ref})
   end
 
+  @spec cancel(GenServe.name(), reference()) :: boolean()
+  def cancel(name, ref) do
+    GenServer.call(name, {:cancel, ref})
+  end
+
   @spec suspend(GenServer.name(), Keyword.t()) :: :ok
   def suspend(name, opts \\ []) do
     GenServer.call(name, {:suspend, :manual, opts})
@@ -102,6 +107,34 @@ defmodule PoliteClient.Partition do
   @impl GenServer
   def handle_call({:allocated?, ref}, _from, state) do
     {:reply, queued?(ref, state) || in_flight?(ref, state), state}
+  end
+
+  @impl GenServer
+  def handle_call({:cancel, ref}, _from, state) do
+    queued =
+      Enum.reject(state.queued_requests, fn
+        %PendingRequest{allocation: %AllocatedRequest{ref: ^ref}} -> true
+        _ -> false
+      end)
+
+    {to_cancel, in_flight} =
+      Enum.split_with(state.requests_in_flight, fn
+        {_task_ref, %PendingRequest{allocation: %AllocatedRequest{ref: ^ref}}} -> true
+        _ -> false
+      end)
+
+    Enum.each(to_cancel, fn {_, %PendingRequest{task: %Task{ref: ref, pid: pid}}} ->
+      Process.demonitor(ref, [:flush])
+      :ok = Task.Supervisor.terminate_child(state.task_supervisor, pid)
+    end)
+
+    state =
+      state
+      |> schedule_next_request(:unknown, :canceled)
+      |> Map.replace!(:queued_requests, queued)
+      |> Map.replace!(:requests_in_flight, Enum.into(in_flight, %{}))
+
+    {:reply, :canceled, state}
   end
 
   @impl GenServer
@@ -163,33 +196,11 @@ defmodule PoliteClient.Partition do
 
     send(pid, {ref, req_result})
 
-    req_duration_in_ms = div(req_duration, 1_000)
-
-    log_meta = [request_ref: ref]
-    Logger.debug("Request duration: #{req_duration_in_ms}", log_meta)
-
-    {computed_delay, new_limiter_state} =
-      state.rate_limiter.limiter.(
-        req_duration_in_ms,
-        req_result,
-        state.rate_limiter.internal_state
-      )
-
-    Logger.debug(
-      "Request delay computed by rate limiter: #{computed_delay}",
-      log_meta
-    )
-
-    delay_before_next_request = clamp_delay(state.rate_limiter, computed_delay)
-    Logger.debug("Clamped request delay: #{delay_before_next_request}", log_meta)
-    Process.send_after(self(), :process_next_request, delay_before_next_request)
-
-    state = %{
+    state =
       state
-      | available: false,
-        requests_in_flight: Map.delete(state.requests_in_flight, task_ref),
-        rate_limiter: %{state.rate_limiter | internal_state: new_limiter_state}
-    }
+      |> schedule_next_request(req_duration, req_result)
+      |> Map.replace!(:available, false)
+      |> Map.replace!(:requests_in_flight, Map.delete(state.requests_in_flight, task_ref))
 
     {:noreply, state}
   end
@@ -237,14 +248,35 @@ defmodule PoliteClient.Partition do
   @impl GenServer
   def terminate(_reason, state), do: purge_all_requests(state)
 
+  defp schedule_next_request(state, duration, result) do
+    {computed_delay, new_limiter_state} =
+      state.rate_limiter.limiter.(
+        duration_to_ms(duration),
+        result,
+        state.rate_limiter.internal_state
+      )
+
+    delay_before_next_request = clamp_delay(state.rate_limiter, computed_delay)
+    Process.send_after(self(), :process_next_request, delay_before_next_request)
+
+    %{state | rate_limiter: %{state.rate_limiter | internal_state: new_limiter_state}}
+  end
+
+  defp duration_to_ms(:unknown), do: :unknown
+  defp duration_to_ms(duration), do: div(duration, 1_000)
+
   defp queued?(ref, state) when is_reference(ref),
     do: has_pending_request_with_ref?(state.queued_requests, ref)
 
   defp in_flight?(ref, state) when is_reference(ref),
-    do: has_pending_request_with_ref?(state.requests_in_flight, ref)
+    do: state.requests_in_flight |> Map.values() |> has_pending_request_with_ref?(ref)
 
   defp has_pending_request_with_ref?(items, ref) do
-    Enum.any?(items, fn
+    find_pending_request_with_ref?(items, ref) != nil
+  end
+
+  defp find_pending_request_with_ref?(items, ref) do
+    Enum.find(items, fn
       %PendingRequest{allocation: %AllocatedRequest{ref: ^ref}} -> true
       _ -> false
     end)

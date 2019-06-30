@@ -38,6 +38,10 @@ defmodule PoliteClient do
     PartitionsMgr.allocated?(key, ref)
   end
 
+  def cancel(%AllocatedRequest{partition: key, ref: ref}) do
+    PartitionsMgr.cancel(key, ref)
+  end
+
   def resume(key), do: with_partition(key, &Partition.resume/1)
 
   def suspend(key, opts \\ [])

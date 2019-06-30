@@ -10,8 +10,8 @@ defmodule PoliteClient.RateLimiter do
         }
 
   @type limiter() ::
-          (request_duration :: non_neg_integer(),
-           request_result :: term(),
+          (request_duration :: non_neg_integer() | :unknown,
+           request_result :: term() | :canceled,
            limiter_state :: term() ->
              {next_request_delay :: non_neg_integer(), new_limiter_state :: term()})
 
@@ -33,7 +33,10 @@ defmodule PoliteClient.RateLimiter do
 
   def to_config({:relative, factor, opts}) do
     to_config(
-      {fn duration, _request_result, nil -> {round(duration * factor), nil} end, nil, opts}
+      {fn
+         duration, _request_result, nil -> {round(duration * factor), nil}
+         :unknown, :canceled, nil -> {1_000, nil}
+       end, nil, opts}
     )
   end
 
