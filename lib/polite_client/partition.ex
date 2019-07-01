@@ -18,15 +18,13 @@ defmodule PoliteClient.Partition do
             allocation: AllocatedRequest.t(),
             request: Request.t(),
             task: nil | Task.t(),
-            attempts: non_neg_integer()
           }
 
     @enforce_keys [:allocation, :request]
-    defstruct allocation: nil, request: nil, task: nil, attempts: 0
+    defstruct allocation: nil, request: nil, task: nil
   end
 
   @max_queued 50
-  @task_attempts 3
 
   @type http_client() ::
           (Request.t() -> {:ok, request_result :: term()} | {:error, request_result :: term()})
@@ -195,46 +193,45 @@ defmodule PoliteClient.Partition do
   def handle_info({task_ref, {req_duration, req_result}}, state) when is_reference(task_ref) do
     Process.demonitor(task_ref, [:flush])
 
-    %AllocatedRequest{ref: ref, owner: pid} =
-      state.requests_in_flight
-      |> Map.get(task_ref)
-      |> Map.get(:allocation)
-
-    send(pid, {ref, req_result})
+    pending_request = Map.get(state.requests_in_flight, task_ref)
+    %AllocatedRequest{ref: ref, owner: pid} = Map.get(pending_request, :allocation)
 
     state =
       state
-      |> schedule_next_request(req_duration, req_result)
       |> Map.replace!(:available, false)
       |> Map.replace!(:requests_in_flight, Map.delete(state.requests_in_flight, task_ref))
 
-    {:noreply, state}
+    case req_result do
+      {:ok, _} ->
+        send(pid, {ref, req_result})
+        {:noreply, schedule_next_request(state, req_duration, req_result)}
+
+      {:error, _} = error ->
+        if pending_request.retries > state.max_retries do
+          send(pid, {ref, {:error, {:retries_exhausted, error}}})
+          IO.puts("TODO suspend (fuse blown)")
+          {:noreply, state}
+        else
+          pending_request = %{pending_request | retries: pending_request.retries + 1}
+
+          state =
+            state
+            |> Map.replace!(:queued_requests, [pending_request | state.queued_requests])
+            |> schedule_next_request(req_duration, req_result)
+
+          {:noreply, state}
+        end
+    end
   end
 
   @impl GenServer
   def handle_info({:DOWN, task_ref, :process, _task_pid, {reason, _}}, state)
       when is_reference(task_ref) do
-    %PendingRequest{
-      allocation: %AllocatedRequest{ref: ref, owner: pid},
-      attempts: attempts
-    } = pending_req = Map.get(state.requests_in_flight, task_ref)
+    %PendingRequest{allocation: %AllocatedRequest{ref: ref, owner: pid}} =
+      Map.get(state.requests_in_flight, task_ref)
 
-    state =
-      if attempts > @task_attempts do
-        Logger.error("Task failed", request_ref: ref)
-
-        send(pid, {ref, {:error, {:task_failed, Map.get(reason, :message, "unknown")}}})
-
-        state
-      else
-        Logger.debug("Retrying request #{inspect(ref)}")
-
-        %{
-          state
-          | queued_requests: [%{pending_req | attempts: attempts + 1} | state.queued_requests]
-        }
-      end
-
+    Logger.error("Task failed", request_ref: ref)
+    send(pid, {ref, {:error, {:task_failed, Map.get(reason, :message, "unknown")}}})
     state = %{state | requests_in_flight: Map.delete(state.requests_in_flight, task_ref)}
 
     {:noreply, process_next_request(state)}
@@ -303,12 +300,7 @@ defmodule PoliteClient.Partition do
           :timer.tc(fn -> state.http_client.(next.request) end)
         end)
 
-      in_flight =
-        Map.put(state.requests_in_flight, task_ref, %{
-          next
-          | task: task,
-            attempts: next.attempts + 1
-        })
+      in_flight = Map.put(state.requests_in_flight, task_ref, %{next | task: task})
 
       %{state | requests_in_flight: in_flight, queued_requests: t}
     else
