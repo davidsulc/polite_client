@@ -18,13 +18,15 @@ defmodule PoliteClient.Partition do
             allocation: AllocatedRequest.t(),
             request: Request.t(),
             task: nil | Task.t(),
+            retries: non_neg_integer()
           }
 
     @enforce_keys [:allocation, :request]
-    defstruct allocation: nil, request: nil, task: nil
+    defstruct allocation: nil, request: nil, task: nil, retries: 0
   end
 
   @max_queued 50
+  @max_retries 3
 
   @type http_client() ::
           (Request.t() -> {:ok, request_result :: term()} | {:error, request_result :: term()})
@@ -35,7 +37,8 @@ defmodule PoliteClient.Partition do
   end
 
   @spec async_request(GenServer.name(), Request.t()) ::
-          AllocatedRequest.t() | {:error, :max_queued | :suspended}
+          AllocatedRequest.t()
+          | {:error, :max_queued | :suspended | {:retries_exhausted, last_error :: term()}}
   def async_request(name, %Request{} = request) do
     GenServer.call(name, {:request, request})
   end
@@ -72,8 +75,14 @@ defmodule PoliteClient.Partition do
         available: true,
         http_client: http_client,
         rate_limiter: rate_limiter_config,
+        # TODO NOW
+        health_checker: %{
+          checker: fn nil, _ref -> {{:suspend, 3_000}, nil} end,
+          internal_state: nil
+        },
         requests_in_flight: %{},
         queued_requests: [],
+        max_retries: Keyword.get(args, :max_retries, @max_retries),
         max_queued: Keyword.get(args, :max_queued, @max_queued),
         task_supervisor: Keyword.fetch!(args, :task_supervisor)
       }
@@ -98,8 +107,8 @@ defmodule PoliteClient.Partition do
   end
 
   @impl GenServer
-  def handle_call(:resume, _from, %{status: :suspended} = state) do
-    {:reply, :ok, %{state | status: :active}}
+  def handle_call(:resume, _from, state) do
+    {:reply, :ok, do_resume(state)}
   end
 
   @impl GenServer
@@ -136,7 +145,7 @@ defmodule PoliteClient.Partition do
   end
 
   @impl GenServer
-  def handle_call(_, _from, %{status: :suspended} = state) do
+  def handle_call(_, _from, %{status: {:suspended, _}} = state) do
     {:reply, {:error, :suspended}, state}
   end
 
@@ -148,7 +157,7 @@ defmodule PoliteClient.Partition do
         _ -> state
       end
 
-    {:reply, :ok, %{state | status: :suspended}}
+    {:reply, :ok, %{state | status: {:suspended, :infinity}}}
   end
 
   @impl GenServer
@@ -190,6 +199,12 @@ defmodule PoliteClient.Partition do
   end
 
   @impl GenServer
+  def handle_info(:auto_resume, %{status: {:suspended, :infinity}} = state), do: {:noreply, state}
+
+  @impl GenServer
+  def handle_info(:auto_resume, state), do: {:noreply, do_resume(state)}
+
+  @impl GenServer
   def handle_info({task_ref, {req_duration, req_result}}, state) when is_reference(task_ref) do
     Process.demonitor(task_ref, [:flush])
 
@@ -201,27 +216,38 @@ defmodule PoliteClient.Partition do
       |> Map.replace!(:available, false)
       |> Map.replace!(:requests_in_flight, Map.delete(state.requests_in_flight, task_ref))
 
-    case req_result do
-      {:ok, _} ->
-        send(pid, {ref, req_result})
-        {:noreply, schedule_next_request(state, req_duration, req_result)}
+    {health, new_state} =
+      state.health_checker.checker.(state.health_checker.internal_state, req_result)
 
-      {:error, _} = error ->
-        if pending_request.retries > state.max_retries do
-          send(pid, {ref, {:error, {:retries_exhausted, error}}})
-          IO.puts("TODO suspend (fuse blown)")
-          {:noreply, state}
-        else
-          pending_request = %{pending_request | retries: pending_request.retries + 1}
+    state = %{
+      state
+      | health_checker: Map.replace!(state.health_checker, :internal_state, new_state)
+    }
 
-          state =
+    state =
+      case health do
+        # TODO NOW suspend at least as long as delay before next request
+        {:suspend, duration} -> do_suspend(state, duration)
+        :ok -> state
+      end
+
+    state =
+      case req_result do
+        {:ok, _} ->
+          send(pid, {ref, req_result})
+          state
+
+        {:error, _} = error ->
+          if pending_request.retries > state.max_retries do
+            send(pid, {ref, {:error, {:retries_exhausted, error}}})
             state
-            |> Map.replace!(:queued_requests, [pending_request | state.queued_requests])
-            |> schedule_next_request(req_duration, req_result)
+          else
+            pending_request = %{pending_request | retries: pending_request.retries + 1}
+            %{state | queued_requests: [pending_request | state.queued_requests]}
+          end
+      end
 
-          {:noreply, state}
-        end
-    end
+    {:noreply, schedule_next_request(state, req_duration, req_result)}
   end
 
   @impl GenServer
@@ -250,6 +276,28 @@ defmodule PoliteClient.Partition do
 
   @impl GenServer
   def terminate(_reason, state), do: purge_all_requests(state)
+
+  defp do_suspend(state, :infinity), do: %{state | status: {:suspended, :infinity}}
+
+  defp do_suspend(state, duration) when is_integer(duration) and duration >= 0 do
+    ref = Process.send_after(self(), :auto_resume, duration)
+    %{state | status: {:suspended, ref}}
+  end
+
+  defp do_resume(%{status: :active} = state), do: state
+
+  # TODO document that on resume, next request is sent immediately
+  defp do_resume(%{status: {:suspended, maybe_ref}} = state) do
+    if is_reference(maybe_ref) do
+      Process.cancel_timer(maybe_ref)
+    end
+
+    # TODO NOW clear rate_limiter and health states => store initial states in state
+
+    process_next_request(%{state | status: :active})
+  end
+
+  defp schedule_next_request(%{status: {:suspended, _}} = state, _duration, _result), do: state
 
   defp schedule_next_request(state, duration, result) do
     {computed_delay, new_limiter_state} =
