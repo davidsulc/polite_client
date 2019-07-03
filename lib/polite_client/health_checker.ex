@@ -1,8 +1,11 @@
 defmodule PoliteClient.HealthChecker do
-  @type t :: %{
+  @type state :: %{
           checker: checker(),
+          status: status(),
           internal_state: term()
         }
+
+  @type status :: :ok | {:suspend, suspension_duration()}
 
   @type checker() ::
           (internal_state :: term(), request_result :: term() | :canceled ->
@@ -10,10 +13,15 @@ defmodule PoliteClient.HealthChecker do
 
   @type suspension_duration() :: non_neg_integer() | :infinity
 
-  @spec to_config(atom()) :: {:ok, t()}
+  # TODO use struct?
+
+  @spec to_config(atom()) :: {:ok, state()}
   def to_config(:default),
-    do: %{
-      checker: fn nil, _ -> {:ok, nil} end,
-      internal_state: nil
-    }
+    do:
+      {:ok,
+       %{
+         checker: fn nil, _ -> {:ok, nil} end,
+         status: :ok,
+         internal_state: nil
+       }}
 end

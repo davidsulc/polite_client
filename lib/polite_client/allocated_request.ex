@@ -18,4 +18,8 @@ defmodule PoliteClient.AllocatedRequest do
   """
   @enforce_keys [:ref, :owner, :partition]
   defstruct [:ref, :owner, :partition]
+
+  @spec same?(left :: t(), right :: t()) :: boolean()
+  def same?(%__MODULE__{ref: ref}, %__MODULE__{ref: ref}), do: true
+  def same?(_left, _right), do: false
 end

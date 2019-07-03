@@ -14,6 +14,10 @@ defmodule PoliteClient.Partition do
   alias PoliteClient.{AllocatedRequest, RateLimiter, Request}
 
   defmodule PendingRequest do
+    @moduledoc false
+
+    alias PoliteClient.AllocatedRequest
+
     @type t :: %__MODULE__{
             allocation: AllocatedRequest.t(),
             request: Request.t(),
@@ -23,13 +27,238 @@ defmodule PoliteClient.Partition do
 
     @enforce_keys [:allocation, :request]
     defstruct allocation: nil, request: nil, task: nil, retries: 0
+
+    @spec get_allocation(t()) :: AllocatedRequest.t()
+    def get_allocation(%__MODULE__{allocation: allocation}), do: allocation
+
+    @spec for_allocation?(pending_request :: t(), allocation :: AllocatedRequest.t()) :: boolean()
+    def for_allocation?(%PendingRequest{} = pending_request, %AllocatedRequest{} = allocation) do
+      pending_request
+      |> get_allocation()
+      |> AllocatedRequest.same?(allocation)
+    end
   end
 
-  @max_queued 50
-  @max_retries 3
+  defmodule State do
+    @moduledoc false
 
-  @type client() ::
-          (Request.t() -> {:ok, request_result :: term()} | {:error, request_result :: term()})
+    alias PoliteClient.Partition.PendingRequest
+
+    @type t :: %__MODULE__{
+            key: String.t(),
+            client: client(),
+            health_checker: PoliteClient.HealthChecker.state(),
+            rate_limiter: PoliteClient.RateLimiter.state(),
+            max_retries: non_neg_integer(),
+            max_queued: non_neg_integer(),
+            task_supervisor: GenServer.name(),
+            status: status(),
+            available: boolean(),
+            in_flight_requests: %{required(reference()) => PendingRequest.t()},
+            queued_requests: [PendingRequest.t()]
+          }
+
+    @type client() ::
+            (Request.t() -> {:ok, request_result :: term()} | {:error, request_result :: term()})
+
+    @type status :: :active | {:suspended, :infinity | reference()}
+
+    @max_queued 50
+    @max_retries 3
+
+    @enforce_keys [
+      :key,
+      :client,
+      :health_checker,
+      :rate_limiter,
+      :max_retries,
+      :max_queued,
+      :task_supervisor,
+      :status,
+      :available,
+      :in_flight_requests,
+      :queued_requests
+    ]
+    defstruct [
+      :key,
+      :client,
+      :health_checker,
+      :rate_limiter,
+      :max_retries,
+      :max_queued,
+      :task_supervisor,
+      status: :active,
+      # indicates whether a request can be made (given rate limiting): it's not enough
+      # for the queue to be empty (b/c the last request may have been made too recently)
+      available: true,
+      in_flight_requests: %{},
+      queued_requests: []
+    ]
+
+    @spec from_keywords(Keyword.t()) :: {:ok, t()} | {:error, reason :: term()}
+    def from_keywords(args) when is_list(args) do
+      with {:ok, client} <- get_client(args),
+           {:ok, rate_limiter_config} <- rate_limiter_config(args) do
+        state = %State{
+          key: Keyword.fetch!(args, :key),
+          status: :active,
+          available: true,
+          client: client,
+          rate_limiter: rate_limiter_config,
+          # TODO NOW
+          health_checker: %{
+            status: :ok,
+            checker: fn nil, _ref -> {{:suspend, 3_000}, nil} end,
+            internal_state: nil
+          },
+          in_flight_requests: %{},
+          queued_requests: [],
+          max_retries: Keyword.get(args, :max_retries, @max_retries),
+          max_queued: Keyword.get(args, :max_queued, @max_queued),
+          task_supervisor: Keyword.fetch!(args, :task_supervisor)
+        }
+
+        {:ok, state}
+      else
+        {:error, _reason} = error -> error
+      end
+    end
+
+    defp get_client(args) do
+      case Keyword.fetch(args, :client) do
+        :error -> {:error, {:client, :not_provided}}
+        {:ok, client} when is_function(client, 1) -> {:ok, client}
+        {:ok, _bad_client} -> {:error, {:client, :bad_client}}
+      end
+    end
+
+    defp rate_limiter_config(args) do
+      args |> Keyword.get(:rate_limiter, :default) |> RateLimiter.to_config()
+    end
+
+    @spec set_unavailable(t()) :: t()
+    def set_unavailable(%__MODULE__{} = state) do
+      %{state | available: false}
+    end
+
+    @spec suspend(state :: t(), duration :: :infinity | reference()) :: t()
+    def suspend(%__MODULE__{} = state, ref \\ :infinity)
+        when is_reference(ref) or ref == :infinity do
+      %{state | status: {:suspended, ref}}
+    end
+
+    @spec enqueue(state :: t(), new_request :: PendingRequest.t()) :: t()
+    def enqueue(%__MODULE__{queued_requests: q} = state, %PendingRequest{} = new_request) do
+      %{state | queued_requests: q ++ [new_request]}
+    end
+
+    @spec queued?(state :: t(), ref :: reference()) :: boolean()
+    def queued?(%__MODULE__{queued_requests: q}, ref) when is_reference(ref),
+      do: has_pending_request_with_ref?(q, ref)
+
+    @spec set_queued_requests(state :: t(), request :: PendingRequest.t()) :: t()
+    def set_queued_requests(%State{} = state, q) do
+      %{state | queued_requests: q}
+    end
+
+    @spec delete_queued_requests_by_allocation(state :: t(), allocation :: AllocatedRequest.t()) ::
+            t()
+    def delete_queued_requests_by_allocation(
+          %__MODULE__{} = state,
+          %AllocatedRequest{} = allocation
+        ) do
+      %{
+        state
+        | queued_requests:
+            Enum.reject(state.queued_requests, &PendingRequest.for_allocation?(&1, allocation))
+      }
+    end
+
+    @spec in_flight?(state :: t(), ref :: reference()) :: boolean()
+    def in_flight?(%__MODULE__{in_flight_requests: in_flight}, ref)
+        when is_reference(ref),
+        do: in_flight |> Map.values() |> has_pending_request_with_ref?(ref)
+
+    @spec has_pending_request_with_ref?(items :: [PendingRequest.t()], ref :: reference()) ::
+            boolean()
+    defp has_pending_request_with_ref?(items, ref) do
+      find_pending_request_with_ref?(items, ref) != nil
+    end
+
+    @spec find_pending_request_with_ref?(items :: [PendingRequest.t()], ref :: reference()) ::
+            PendingRequest.t()
+    defp find_pending_request_with_ref?(items, ref) do
+      Enum.find(items, fn
+        %PendingRequest{allocation: %{ref: ^ref}} -> true
+        _ -> false
+      end)
+    end
+
+    def get_in_flight_request(%__MODULE__{in_flight_requests: in_flight}, task_ref),
+      do: Map.get(in_flight, task_ref)
+
+    def add_in_flight_request(
+          %__MODULE__{in_flight_requests: in_flight} = state,
+          task_ref,
+          %PendingRequest{} = request
+        )
+        when is_reference(task_ref) do
+      %{state | in_flight_requests: Map.put(in_flight, task_ref, request)}
+    end
+
+    def delete_in_flight_request(%__MODULE__{in_flight_requests: in_flight} = state, task_ref),
+      do: %{state | in_flight_requests: Map.delete(in_flight, task_ref)}
+
+    def set_in_flight_requests(%__MODULE__{} = state, in_flight),
+      do: %{state | in_flight_requests: in_flight}
+
+    def update_health_checker_state(%__MODULE__{} = state, req_result) do
+      {status, new_state} =
+        state.health_checker.checker.(state.health_checker.internal_state, req_result)
+
+      health_checker =
+        state
+        |> Map.get(:health_checker)
+        |> Map.replace!(:internal_state, new_state)
+        |> Map.replace!(:status, status)
+
+      %{state | health_checker: health_checker}
+    end
+
+    def check_health(%__MODULE__{} = state), do: state.health_checker.status
+
+    def update_rate_limiter_state(
+          %__MODULE__{rate_limiter: %{limiter: limiter, internal_state: internal_state}} = state,
+          req_result,
+          duration
+        ) do
+      {computed_delay, new_state} =
+        limiter.(
+          duration_to_ms(duration),
+          req_result,
+          internal_state
+        )
+
+      rate_limiter =
+        state
+        |> Map.get(:rate_limiter)
+        |> Map.replace!(:internal_state, new_state)
+        |> Map.replace!(:request_delay, clamp_delay(state.rate_limiter, computed_delay))
+
+      %{state | rate_limiter: rate_limiter}
+    end
+
+    defp clamp_delay(%{min_delay: min, max_delay: max}, delay), do: delay |> max(min) |> min(max)
+
+    def get_request_delay(%__MODULE__{} = state) do
+      state
+      |> Map.get(:rate_limiter)
+      |> Map.get(:request_delay)
+    end
+
+    defp duration_to_ms(:unknown), do: :unknown
+    defp duration_to_ms(duration), do: div(duration, 1_000)
+  end
 
   def start_link(args) do
     # TODO verify args contains :client
@@ -43,19 +272,19 @@ defmodule PoliteClient.Partition do
     GenServer.call(name, {:request, request})
   end
 
-  @spec allocated?(GenServe.name(), reference()) :: boolean()
+  @spec allocated?(GenServer.name(), reference()) :: boolean()
   def allocated?(name, ref) do
     GenServer.call(name, {:allocated?, ref})
   end
 
-  @spec cancel(GenServe.name(), reference()) :: boolean()
-  def cancel(name, ref) do
-    GenServer.call(name, {:cancel, ref})
+  @spec cancel(GenServer.name(), AllocatedRequest.t()) :: boolean()
+  def cancel(name, %AllocatedRequest{} = allocation) do
+    GenServer.call(name, {:cancel, allocation})
   end
 
   @spec suspend(GenServer.name(), Keyword.t()) :: :ok
   def suspend(name, opts \\ []) do
-    GenServer.call(name, {:suspend, :manual, opts})
+    GenServer.call(name, {:suspend, opts})
   end
 
   @spec resume(GenServer.name()) :: :ok
@@ -65,45 +294,10 @@ defmodule PoliteClient.Partition do
 
   @impl GenServer
   def init(args) do
-    with {:ok, client} <- client(args),
-         {:ok, rate_limiter_config} <- rate_limiter_config(args) do
-      state = %{
-        key: Keyword.fetch!(args, :key),
-        status: :active,
-        # indicates whether a request can be made (given rate limiting): it's not enough
-        # for the queue to be empty (b/c the last request may have been made too recently)
-        available: true,
-        client: client,
-        rate_limiter: rate_limiter_config,
-        # TODO NOW
-        health_checker: %{
-          checker: fn nil, _ref -> {{:suspend, 3_000}, nil} end,
-          internal_state: nil
-        },
-        requests_in_flight: %{},
-        queued_requests: [],
-        max_retries: Keyword.get(args, :max_retries, @max_retries),
-        max_queued: Keyword.get(args, :max_queued, @max_queued),
-        task_supervisor: Keyword.fetch!(args, :task_supervisor)
-      }
-
-      {:ok, state}
-    else
+    case State.from_keywords(args) do
+      {:ok, state} -> {:ok, state}
       {:error, reason} -> {:stop, reason}
     end
-  end
-
-  defp client(args) do
-    case Keyword.fetch(args, :client) do
-      :error -> {:error, {:client, :not_provided}}
-      # TODO validate arity
-      {:ok, client} when is_function(client) -> {:ok, client}
-      {:ok, _bad_client} -> {:error, {:client, :bad_client}}
-    end
-  end
-
-  defp rate_limiter_config(args) do
-    args |> Keyword.get(:rate_limiter, :default) |> RateLimiter.to_config()
   end
 
   @impl GenServer
@@ -113,21 +307,15 @@ defmodule PoliteClient.Partition do
 
   @impl GenServer
   def handle_call({:allocated?, ref}, _from, state) do
-    {:reply, queued?(ref, state) || in_flight?(ref, state), state}
+    {:reply, State.queued?(state, ref) || State.in_flight?(state, ref), state}
   end
 
   @impl GenServer
-  def handle_call({:cancel, ref}, _from, state) do
-    queued =
-      Enum.reject(state.queued_requests, fn
-        %PendingRequest{allocation: %AllocatedRequest{ref: ^ref}} -> true
-        _ -> false
-      end)
-
-    {to_cancel, in_flight} =
-      Enum.split_with(state.requests_in_flight, fn
-        {_task_ref, %PendingRequest{allocation: %AllocatedRequest{ref: ^ref}}} -> true
-        _ -> false
+  def handle_call({:cancel, %AllocatedRequest{} = allocation}, _from, state) do
+    {to_cancel, remaining} =
+      Enum.split_with(state.in_flight_requests, fn
+        {_task_ref, pending_request} ->
+          PendingRequest.for_allocation?(pending_request, allocation)
       end)
 
     Enum.each(to_cancel, fn {_, %PendingRequest{task: %Task{ref: ref, pid: pid}}} ->
@@ -137,9 +325,9 @@ defmodule PoliteClient.Partition do
 
     state =
       state
+      |> State.delete_queued_requests_by_allocation(allocation)
       |> schedule_next_request(:unknown, :canceled)
-      |> Map.replace!(:queued_requests, queued)
-      |> Map.replace!(:requests_in_flight, Enum.into(in_flight, %{}))
+      |> State.set_in_flight_requests(Enum.into(remaining, %{}))
 
     {:reply, :canceled, state}
   end
@@ -150,14 +338,14 @@ defmodule PoliteClient.Partition do
   end
 
   @impl GenServer
-  def handle_call({:suspend, _reason, opts}, _from, state) do
+  def handle_call({:suspend, opts}, _from, state) do
     state =
       case Keyword.get(opts, :purge) do
         true -> purge_all_requests(state)
         _ -> state
       end
 
-    {:reply, :ok, %{state | status: {:suspended, :infinity}}}
+    {:reply, :ok, State.suspend(state)}
   end
 
   @impl GenServer
@@ -172,30 +360,21 @@ defmodule PoliteClient.Partition do
 
   @impl GenServer
   def handle_call({:request, request}, {pid, _}, state) do
-    allocated_request = %AllocatedRequest{
-      ref: make_ref(),
-      owner: pid,
-      partition: state.key
-    }
-
     pending_request = %PendingRequest{
-      allocation: allocated_request,
-      request: request
+      request: request,
+      allocation: %AllocatedRequest{
+        ref: make_ref(),
+        owner: pid,
+        partition: state.key
+      }
     }
 
     state =
       state
-      |> Map.replace!(
-        :queued_requests,
-        state.queued_requests ++ [pending_request]
-      )
-      |> case do
-        %{available: true} = state -> process_next_request(state)
-        state -> state
-      end
-      |> Map.replace!(:available, false)
+      |> State.enqueue(pending_request)
+      |> maybe_process_next_request()
 
-    {:reply, allocated_request, state}
+    {:reply, PendingRequest.get_allocation(pending_request), state}
   end
 
   @impl GenServer
@@ -208,59 +387,34 @@ defmodule PoliteClient.Partition do
   def handle_info({task_ref, {req_duration, req_result}}, state) when is_reference(task_ref) do
     Process.demonitor(task_ref, [:flush])
 
-    pending_request = Map.get(state.requests_in_flight, task_ref)
-    %AllocatedRequest{ref: ref, owner: pid} = Map.get(pending_request, :allocation)
-
     state =
       state
-      |> Map.replace!(:available, false)
-      |> Map.replace!(:requests_in_flight, Map.delete(state.requests_in_flight, task_ref))
+      |> State.set_unavailable()
+      |> suspend_if_not_healthy(req_result)
+      |> handle_request_result(req_result, task_ref)
+      |> State.delete_in_flight_request(task_ref)
+      |> schedule_next_request(req_duration, req_result)
 
-    {health, new_state} =
-      state.health_checker.checker.(state.health_checker.internal_state, req_result)
-
-    state = %{
-      state
-      | health_checker: Map.replace!(state.health_checker, :internal_state, new_state)
-    }
-
-    state =
-      case health do
-        # TODO NOW suspend at least as long as delay before next request
-        {:suspend, duration} -> do_suspend(state, duration)
-        :ok -> state
-      end
-
-    state =
-      case req_result do
-        {:ok, _} ->
-          send(pid, {ref, req_result})
-          state
-
-        {:error, _} = error ->
-          if pending_request.retries > state.max_retries do
-            send(pid, {ref, {:error, {:retries_exhausted, error}}})
-            state
-          else
-            pending_request = %{pending_request | retries: pending_request.retries + 1}
-            %{state | queued_requests: [pending_request | state.queued_requests]}
-          end
-      end
-
-    {:noreply, schedule_next_request(state, req_duration, req_result)}
+    {:noreply, state}
   end
 
   @impl GenServer
   def handle_info({:DOWN, task_ref, :process, _task_pid, {reason, _}}, state)
       when is_reference(task_ref) do
-    %PendingRequest{allocation: %AllocatedRequest{ref: ref, owner: pid}} =
-      Map.get(state.requests_in_flight, task_ref)
+    %AllocatedRequest{ref: ref, owner: pid} =
+      state
+      |> State.get_in_flight_request(task_ref)
+      |> PendingRequest.get_allocation()
 
     Logger.error("Task failed", request_ref: ref)
     send(pid, {ref, {:error, {:task_failed, Map.get(reason, :message, "unknown")}}})
-    state = %{state | requests_in_flight: Map.delete(state.requests_in_flight, task_ref)}
 
-    {:noreply, process_next_request(state)}
+    state =
+      state
+      |> State.delete_in_flight_request(task_ref)
+      |> process_next_request()
+
+    {:noreply, state}
   end
 
   @impl GenServer
@@ -277,11 +431,21 @@ defmodule PoliteClient.Partition do
   @impl GenServer
   def terminate(_reason, state), do: purge_all_requests(state)
 
-  defp do_suspend(state, :infinity), do: %{state | status: {:suspended, :infinity}}
+  defp suspend_if_not_healthy(%State{} = state, req_result) do
+    state
+    |> State.update_health_checker_state(req_result)
+    |> State.check_health()
+    |> case do
+      {:suspend, :infinity} ->
+        State.suspend(state, :infinity)
 
-  defp do_suspend(state, duration) when is_integer(duration) and duration >= 0 do
-    ref = Process.send_after(self(), :auto_resume, duration)
-    %{state | status: {:suspended, ref}}
+      # TODO NOW suspend at least as long as delay before next request
+      {:suspend, duration} ->
+        State.suspend(state, Process.send_after(self(), :auto_resume, duration))
+
+      :ok ->
+        state
+    end
   end
 
   defp do_resume(%{status: :active} = state), do: state
@@ -297,40 +461,40 @@ defmodule PoliteClient.Partition do
     process_next_request(%{state | status: :active})
   end
 
+  defp handle_request_result(state, req_result, task_ref) do
+    pending_request = State.get_in_flight_request(state, task_ref)
+    %AllocatedRequest{ref: ref, owner: pid} = PendingRequest.get_allocation(pending_request)
+
+    case req_result do
+      {:ok, _} ->
+        send(pid, {ref, req_result})
+        state
+
+      {:error, _} = error ->
+        if pending_request.retries > state.max_retries do
+          send(pid, {ref, {:error, {:retries_exhausted, error}}})
+          state
+        else
+          pending_request = %{pending_request | retries: pending_request.retries + 1}
+          %{state | queued_requests: [pending_request | state.queued_requests]}
+        end
+    end
+  end
+
   defp schedule_next_request(%{status: {:suspended, _}} = state, _duration, _result), do: state
 
   defp schedule_next_request(state, duration, result) do
-    {computed_delay, new_limiter_state} =
-      state.rate_limiter.limiter.(
-        duration_to_ms(duration),
-        result,
-        state.rate_limiter.internal_state
-      )
-
-    delay_before_next_request = clamp_delay(state.rate_limiter, computed_delay)
-    Process.send_after(self(), :process_next_request, delay_before_next_request)
-
-    %{state | rate_limiter: %{state.rate_limiter | internal_state: new_limiter_state}}
+    state = State.update_rate_limiter_state(state, result, duration)
+    Process.send_after(self(), :process_next_request, State.get_request_delay(state))
+    state
   end
 
-  defp duration_to_ms(:unknown), do: :unknown
-  defp duration_to_ms(duration), do: div(duration, 1_000)
+  defp maybe_process_next_request(%State{available: false} = state), do: state
 
-  defp queued?(ref, state) when is_reference(ref),
-    do: has_pending_request_with_ref?(state.queued_requests, ref)
-
-  defp in_flight?(ref, state) when is_reference(ref),
-    do: state.requests_in_flight |> Map.values() |> has_pending_request_with_ref?(ref)
-
-  defp has_pending_request_with_ref?(items, ref) do
-    find_pending_request_with_ref?(items, ref) != nil
-  end
-
-  defp find_pending_request_with_ref?(items, ref) do
-    Enum.find(items, fn
-      %PendingRequest{allocation: %AllocatedRequest{ref: ^ref}} -> true
-      _ -> false
-    end)
+  defp maybe_process_next_request(%State{available: true} = state) do
+    state
+    |> State.set_unavailable()
+    |> process_next_request()
   end
 
   defp process_next_request(%{queued_requests: []} = state) do
@@ -341,26 +505,23 @@ defmodule PoliteClient.Partition do
     [%PendingRequest{allocation: allocation} = next | t] = q
     %AllocatedRequest{owner: pid} = allocation
 
-    if Process.alive?(pid) do
-      %Task{ref: task_ref} =
-        task =
-        Task.Supervisor.async_nolink(state.task_supervisor, fn ->
-          :timer.tc(fn -> state.client.(next.request) end)
-        end)
+    state =
+      if Process.alive?(pid) do
+        %Task{ref: task_ref} =
+          task =
+          Task.Supervisor.async_nolink(state.task_supervisor, fn ->
+            :timer.tc(fn -> state.client.(next.request) end)
+          end)
 
-      in_flight = Map.put(state.requests_in_flight, task_ref, %{next | task: task})
+        State.add_in_flight_request(state, task_ref, %{next | task: task})
+      else
+        process_next_request(%{state | queued_requests: t})
+      end
 
-      %{state | requests_in_flight: in_flight, queued_requests: t}
-    else
-      process_next_request(%{state | queued_requests: t})
-    end
+    State.set_queued_requests(state, t)
   end
 
-  defp clamp_delay(%{min_delay: min, max_delay: max}, delay) do
-    delay |> max(min) |> min(max)
-  end
-
-  defp purge_all_requests(%{requests_in_flight: in_flight, queued_requests: queued} = state) do
+  defp purge_all_requests(%{in_flight_requests: in_flight, queued_requests: queued} = state) do
     in_flight
     |> Map.values()
     |> Enum.each(&cancel_in_flight_request/1)
@@ -369,7 +530,7 @@ defmodule PoliteClient.Partition do
       send_cancelation(ref, pid)
     end)
 
-    %{state | requests_in_flight: %{}, queued_requests: []}
+    %{state | in_flight_requests: %{}, queued_requests: []}
   end
 
   defp cancel_in_flight_request(%PendingRequest{task: task} = pending_req) do

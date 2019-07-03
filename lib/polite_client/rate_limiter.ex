@@ -2,9 +2,10 @@ defmodule PoliteClient.RateLimiter do
   @min_delay 1_000
   @max_delay 120_000
 
-  @type t :: %{
+  @type state :: %{
           limiter: limiter(),
           internal_state: term(),
+          current_delay: non_neg_integer(),
           min_delay: non_neg_integer(),
           max_delay: non_neg_integer()
         }
@@ -17,10 +18,10 @@ defmodule PoliteClient.RateLimiter do
 
   # TODO validations
 
-  @spec to_config(atom()) :: {:ok, t()}
+  @spec to_config(atom()) :: {:ok, state()}
   def to_config(:default), do: to_config({:constant, @min_delay})
 
-  @spec to_config({atom() | limiter(), term(), Keyword.t()}) :: {:ok, t()}
+  @spec to_config({atom() | limiter(), term(), Keyword.t()}) :: {:ok, state()}
 
   def to_config({:constant, delay, opts}) do
     opts =
@@ -46,6 +47,7 @@ defmodule PoliteClient.RateLimiter do
     config = %{
       limiter: fun,
       internal_state: initial_state,
+      current_delay: 0,
       min_delay: Keyword.get(opts, :min_delay, @min_delay),
       max_delay: Keyword.get(opts, :max_delay, @max_delay)
     }
@@ -53,7 +55,7 @@ defmodule PoliteClient.RateLimiter do
     {:ok, config}
   end
 
-  @spec to_config({atom() | limiter(), term()}) :: {:ok, t()}
+  @spec to_config({atom() | limiter(), term()}) :: {:ok, state()}
 
   def to_config({limiter, value}) when is_atom(limiter) or is_function(limiter, 3),
     do: to_config({limiter, value, []})
