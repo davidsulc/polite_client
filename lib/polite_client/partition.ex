@@ -28,11 +28,11 @@ defmodule PoliteClient.Partition do
   @max_queued 50
   @max_retries 3
 
-  @type http_client() ::
+  @type client() ::
           (Request.t() -> {:ok, request_result :: term()} | {:error, request_result :: term()})
 
   def start_link(args) do
-    # TODO verify args contains :http_client
+    # TODO verify args contains :client
     GenServer.start_link(__MODULE__, args, args)
   end
 
@@ -65,7 +65,7 @@ defmodule PoliteClient.Partition do
 
   @impl GenServer
   def init(args) do
-    with {:ok, http_client} <- http_client(args),
+    with {:ok, client} <- client(args),
          {:ok, rate_limiter_config} <- rate_limiter_config(args) do
       state = %{
         key: Keyword.fetch!(args, :key),
@@ -73,7 +73,7 @@ defmodule PoliteClient.Partition do
         # indicates whether a request can be made (given rate limiting): it's not enough
         # for the queue to be empty (b/c the last request may have been made too recently)
         available: true,
-        http_client: http_client,
+        client: client,
         rate_limiter: rate_limiter_config,
         # TODO NOW
         health_checker: %{
@@ -93,12 +93,12 @@ defmodule PoliteClient.Partition do
     end
   end
 
-  defp http_client(args) do
-    case Keyword.fetch(args, :http_client) do
-      :error -> {:error, {:http_client, :missing}}
+  defp client(args) do
+    case Keyword.fetch(args, :client) do
+      :error -> {:error, {:client, :not_provided}}
       # TODO validate arity
       {:ok, client} when is_function(client) -> {:ok, client}
-      {:ok, _bad_client} -> {:error, {:http_client, :bad_client}}
+      {:ok, _bad_client} -> {:error, {:client, :bad_client}}
     end
   end
 
@@ -345,7 +345,7 @@ defmodule PoliteClient.Partition do
       %Task{ref: task_ref} =
         task =
         Task.Supervisor.async_nolink(state.task_supervisor, fn ->
-          :timer.tc(fn -> state.http_client.(next.request) end)
+          :timer.tc(fn -> state.client.(next.request) end)
         end)
 
       in_flight = Map.put(state.requests_in_flight, task_ref, %{next | task: task})
