@@ -234,7 +234,7 @@ defmodule PoliteClient.Partition do
         ) do
       {computed_delay, new_state} =
         limiter.(
-          duration_to_ms(duration),
+          duration,
           req_result,
           internal_state
         )
@@ -255,9 +255,6 @@ defmodule PoliteClient.Partition do
       |> Map.get(:rate_limiter)
       |> Map.get(:request_delay)
     end
-
-    defp duration_to_ms(:unknown), do: :unknown
-    defp duration_to_ms(duration), do: div(duration, 1_000)
   end
 
   def start_link(args) do
@@ -326,7 +323,7 @@ defmodule PoliteClient.Partition do
     state =
       state
       |> State.delete_queued_requests_by_allocation(allocation)
-      |> schedule_next_request(:unknown, :canceled)
+      |> schedule_next_request()
       |> State.set_in_flight_requests(Enum.into(remaining, %{}))
 
     {:reply, :canceled, state}
@@ -393,7 +390,9 @@ defmodule PoliteClient.Partition do
       |> suspend_if_not_healthy(req_result)
       |> handle_request_result(req_result, task_ref)
       |> State.delete_in_flight_request(task_ref)
-      |> schedule_next_request(req_duration, req_result)
+      # TODO
+      |> State.update_rate_limiter_state(req_result, req_duration)
+      |> schedule_next_request()
 
     {:noreply, state}
   end
@@ -481,10 +480,9 @@ defmodule PoliteClient.Partition do
     end
   end
 
-  defp schedule_next_request(%{status: {:suspended, _}} = state, _duration, _result), do: state
+  defp schedule_next_request(%{status: {:suspended, _}} = state), do: state
 
-  defp schedule_next_request(state, duration, result) do
-    state = State.update_rate_limiter_state(state, result, duration)
+  defp schedule_next_request(state) do
     Process.send_after(self(), :process_next_request, State.get_request_delay(state))
     state
   end

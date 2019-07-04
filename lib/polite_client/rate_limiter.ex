@@ -11,8 +11,8 @@ defmodule PoliteClient.RateLimiter do
         }
 
   @type limiter() ::
-          (request_duration :: non_neg_integer() | :unknown,
-           request_result :: term() | :canceled,
+          (request_duration_in_microseconds :: non_neg_integer(),
+           request_result :: term(),
            internal_state :: term() ->
              {next_request_delay :: non_neg_integer(), new_internal_state :: term()})
 
