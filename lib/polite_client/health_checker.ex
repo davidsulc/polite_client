@@ -81,9 +81,5 @@ defmodule PoliteClient.HealthChecker do
   end
 
   @spec reset_internal_state(state :: state()) :: state()
-  # def reset_internal_state(%{initial_state: i} = state), do: %{state | internal_state: i}
-  def reset_internal_state(%{initial_state: i} = state) do
-    IO.puts("resetting internal state")
-    %{state | internal_state: i}
-  end
+  def reset_internal_state(%{initial_state: i} = state), do: %{state | internal_state: i}
 end
