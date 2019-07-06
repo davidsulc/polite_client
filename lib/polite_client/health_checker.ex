@@ -1,4 +1,6 @@
 defmodule PoliteClient.HealthChecker do
+  alias PoliteClient.ResponseMeta
+
   @type state :: %{
           checker: checker(),
           status: status(),
@@ -6,10 +8,11 @@ defmodule PoliteClient.HealthChecker do
         }
 
   @type status :: :ok | {:suspend, suspension_duration()}
+  @type internal_state :: term()
 
   @type checker() ::
-          (internal_state :: term(), request_result :: term() | :canceled ->
-             {:ok | {:suspend, suspension_duration()}, new_internal_state :: term()})
+          (internal_state :: internal_state(), response_meta :: ResponseMeta.t() ->
+             {:ok | {:suspend, suspension_duration()}, new_internal_state :: internal_state()})
 
   @type suspension_duration() :: non_neg_integer() | :infinity
 

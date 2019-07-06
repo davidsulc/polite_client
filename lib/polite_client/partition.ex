@@ -11,7 +11,7 @@ defmodule PoliteClient.Partition do
 
   require Logger
 
-  alias PoliteClient.{AllocatedRequest, Client}
+  alias PoliteClient.{AllocatedRequest, Client, ResponseMeta}
   alias PoliteClient.Partition.{PendingRequest, State}
 
   def start_link(args) do
@@ -138,17 +138,17 @@ defmodule PoliteClient.Partition do
   def handle_info(:auto_resume, state), do: {:noreply, do_resume(state)}
 
   @impl GenServer
-  def handle_info({task_ref, {req_duration, req_result}}, state) when is_reference(task_ref) do
+  def handle_info({task_ref, %ResponseMeta{} = response_meta}, state)
+      when is_reference(task_ref) do
     Process.demonitor(task_ref, [:flush])
 
     state =
       state
       |> State.set_unavailable()
-      |> suspend_if_not_healthy(req_result)
-      |> handle_request_result(req_result, task_ref)
+      |> suspend_if_not_healthy(response_meta)
+      |> handle_request_result(response_meta, task_ref)
       |> State.delete_in_flight_request(task_ref)
-      # TODO
-      |> State.update_rate_limiter_state(req_result, req_duration)
+      |> State.update_rate_limiter_state(response_meta)
       |> schedule_next_request()
 
     {:noreply, state}
@@ -187,9 +187,9 @@ defmodule PoliteClient.Partition do
   @impl GenServer
   def terminate(_reason, state), do: purge_all_requests(state)
 
-  defp suspend_if_not_healthy(%State{} = state, req_result) do
+  defp suspend_if_not_healthy(%State{} = state, %ResponseMeta{} = response_meta) do
     state
-    |> State.update_health_checker_state(req_result)
+    |> State.update_health_checker_state(response_meta)
     |> State.check_health()
     |> case do
       {:suspend, :infinity} ->
@@ -219,16 +219,16 @@ defmodule PoliteClient.Partition do
 
   @spec handle_request_result(
           state :: State.t(),
-          req_result :: Client.result(),
+          response_meta :: ResponseMeta.t(),
           task_ref :: reference()
         ) :: State.t()
-  defp handle_request_result(state, req_result, task_ref) do
+  defp handle_request_result(state, %ResponseMeta{result: result}, task_ref) do
     pending_request = State.get_in_flight_request(state, task_ref)
     %AllocatedRequest{ref: ref, owner: pid} = PendingRequest.get_allocation(pending_request)
 
-    case req_result do
+    case result do
       {:ok, _} ->
-        send(pid, {ref, req_result})
+        send(pid, {ref, result})
         state
 
       {:error, _} = error ->
@@ -270,7 +270,12 @@ defmodule PoliteClient.Partition do
         %Task{ref: task_ref} =
           task =
           Task.Supervisor.async_nolink(state.task_supervisor, fn ->
-            :timer.tc(fn -> state.client.(next.request) end)
+            {duration, result} = :timer.tc(fn -> state.client.(next.request) end)
+
+            %ResponseMeta{
+              result: result,
+              duration: duration
+            }
           end)
 
         State.add_in_flight_request(state, task_ref, %{next | task: task})

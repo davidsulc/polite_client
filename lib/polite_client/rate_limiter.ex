@@ -1,4 +1,6 @@
 defmodule PoliteClient.RateLimiter do
+  alias PoliteClient.ResponseMeta
+
   @min_delay 1_000
   @max_delay 120_000
 
@@ -10,11 +12,11 @@ defmodule PoliteClient.RateLimiter do
           max_delay: non_neg_integer()
         }
 
+  @type internal_state :: term()
+
   @type limiter() ::
-          (request_duration_in_microseconds :: non_neg_integer(),
-           request_result :: term(),
-           internal_state :: term() ->
-             {next_request_delay :: non_neg_integer(), new_internal_state :: term()})
+          (internal_state :: internal_state(), response_meta :: ResponseMeta.t() ->
+             {next_request_delay :: non_neg_integer(), new_internal_state :: internal_state()})
 
   # TODO validations
 
@@ -29,15 +31,13 @@ defmodule PoliteClient.RateLimiter do
       |> Keyword.put_new(:min_delay, delay)
       |> Keyword.put_new(:max_delay, delay)
 
-    to_config({fn _duration, _request_result, nil -> {delay, nil} end, nil, opts})
+    to_config({fn nil, _response_meta -> {delay, nil} end, nil, opts})
   end
 
   def to_config({:relative, factor, opts}) do
     to_config(
-      {fn
-         duration, _request_result, nil -> {round(duration * factor), nil}
-         :unknown, :canceled, nil -> {1_000, nil}
-       end, nil, opts}
+      {fn nil, %ResponseMeta{duration: duration} -> {round(duration / 1_000 * factor), nil} end,
+       nil, opts}
     )
   end
 

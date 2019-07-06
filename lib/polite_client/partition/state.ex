@@ -1,7 +1,7 @@
 defmodule PoliteClient.Partition.State do
   @moduledoc false
 
-  alias PoliteClient.{AllocatedRequest, Client, HealthChecker, RateLimiter}
+  alias PoliteClient.{AllocatedRequest, Client, HealthChecker, RateLimiter, ResponseMeta}
   alias PoliteClient.Partition.PendingRequest
 
   @type t :: %__MODULE__{
@@ -169,9 +169,9 @@ defmodule PoliteClient.Partition.State do
   def set_in_flight_requests(%__MODULE__{} = state, in_flight),
     do: %{state | in_flight_requests: in_flight}
 
-  def update_health_checker_state(%__MODULE__{} = state, req_result) do
+  def update_health_checker_state(%__MODULE__{} = state, %ResponseMeta{} = response_meta) do
     {status, new_state} =
-      state.health_checker.checker.(state.health_checker.internal_state, req_result)
+      state.health_checker.checker.(state.health_checker.internal_state, response_meta)
 
     health_checker =
       state
@@ -186,15 +186,9 @@ defmodule PoliteClient.Partition.State do
 
   def update_rate_limiter_state(
         %__MODULE__{rate_limiter: %{limiter: limiter, internal_state: internal_state}} = state,
-        req_result,
-        duration
+        %ResponseMeta{} = response_meta
       ) do
-    {computed_delay, new_state} =
-      limiter.(
-        duration,
-        req_result,
-        internal_state
-      )
+    {computed_delay, new_state} = limiter.(internal_state, response_meta)
 
     rate_limiter =
       state
