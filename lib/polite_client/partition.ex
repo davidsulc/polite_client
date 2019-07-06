@@ -395,14 +395,14 @@ defmodule PoliteClient.Partition do
   end
 
   @impl GenServer
+  # The task merely wraps the client call to time it, and is therefore not expected to fail (assuming
+  # the client isn't faulty). Consequently, we just log the failure and don't attempt to restart the task.
   def handle_info({:DOWN, task_ref, :process, _task_pid, {reason, _}}, state)
       when is_reference(task_ref) do
-    %AllocatedRequest{ref: ref, owner: pid} =
-      state
-      |> State.get_in_flight_request(task_ref)
-      |> PendingRequest.get_allocation()
+    pending_request = %PendingRequest{request: req} = State.get_in_flight_request(state, task_ref)
+    %AllocatedRequest{ref: ref, owner: pid} = PendingRequest.get_allocation(pending_request)
 
-    Logger.error("Task failed", request_ref: ref)
+    Logger.error("Task failed", request_ref: ref, request: req)
     send(pid, {ref, {:error, {:task_failed, Map.get(reason, :message, "unknown")}}})
 
     state =
