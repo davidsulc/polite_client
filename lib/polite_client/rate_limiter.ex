@@ -62,10 +62,28 @@ defmodule PoliteClient.RateLimiter do
     {:ok, config}
   end
 
+  def config_valid?(%{
+        limiter: limiter,
+        initial_state: _,
+        internal_state: _,
+        current_delay: current_delay,
+        min_delay: min_delay,
+        max_delay: max_delay
+      }) do
+    is_function(limiter, 2) && delay_valid?(current_delay) && delay_valid?(min_delay) &&
+      delay_valid?(max_delay)
+  end
+
+  def config_valid?(_config), do: false
+
+  defp delay_valid?(delay) when is_integer(delay) and delay >= 0, do: true
+  defp delay_valid?(_delay), do: false
+
   def update_state(
         %{limiter: limiter, internal_state: internal_state} = state,
         %ResponseMeta{} = response_meta
       ) do
+    # TODO raise on bad return value
     {computed_delay, new_state} = limiter.(internal_state, response_meta)
     new_delay = clamp_delay(state, computed_delay)
 

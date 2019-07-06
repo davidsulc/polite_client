@@ -54,9 +54,14 @@ defmodule PoliteClient.Partition.State do
 
   @spec from_keywords(Keyword.t()) :: {:ok, t()} | {:error, reason :: term()}
   def from_keywords(args) when is_list(args) do
-    with {:ok, client} <- get_client(args),
-         {:ok, rate_limiter_config} <- rate_limiter_config(args),
-         {:ok, health_checker_config} <- health_checker_config(args) do
+    client = Keyword.get(args, :client)
+    rate_limiter_config = Keyword.get(args, :rate_limiter)
+    health_checker_config = Keyword.get(args, :health_checker)
+
+    with {:client, {:ok, client}} <- {:client, Client.validate(client)},
+         {:rate_limiter, true} <- {:rate_limiter, RateLimiter.config_valid?(rate_limiter_config)},
+         {:health_checker, true} <-
+           {:health_checker, HealthChecker.config_valid?(health_checker_config)} do
       state = %__MODULE__{
         key: Keyword.fetch!(args, :key),
         status: :active,
@@ -73,24 +78,14 @@ defmodule PoliteClient.Partition.State do
 
       {:ok, state}
     else
-      {:error, _reason} = error -> error
+      {:client, {:error, reason}} ->
+        {:error, {:client, reason}}
+
+      {rate_limiter_or_health_checker, _}
+      when rate_limiter_or_health_checker == :rate_limiter or
+             rate_limiter_or_health_checker == :health_checker ->
+        {:error, {rate_limiter_or_health_checker, :invalid_config}}
     end
-  end
-
-  defp get_client(args) do
-    case Keyword.fetch(args, :client) do
-      :error -> {:error, {:client, :not_provided}}
-      {:ok, client} when is_function(client, 1) -> {:ok, client}
-      {:ok, _bad_client} -> {:error, {:client, :bad_client}}
-    end
-  end
-
-  defp rate_limiter_config(args) do
-    args |> Keyword.get(:rate_limiter, :default) |> RateLimiter.to_config()
-  end
-
-  defp health_checker_config(args) do
-    args |> Keyword.get(:health_checker, :default) |> HealthChecker.to_config()
   end
 
   @spec set_status(state :: t(), status :: status()) :: t()

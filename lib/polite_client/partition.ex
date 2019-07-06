@@ -146,13 +146,14 @@ defmodule PoliteClient.Partition do
   def handle_info(:auto_resume, state), do: {:noreply, do_resume(state)}
 
   @impl GenServer
-  def handle_info({task_ref, %ResponseMeta{} = response_meta}, state)
+  def handle_info({task_ref, %ResponseMeta{result: result} = response_meta}, state)
       when is_reference(task_ref) do
     Process.demonitor(task_ref, [:flush])
 
+    Client.validate_result(result)
+
     state =
       state
-      |> State.set_unavailable()
       |> suspend_if_not_healthy(response_meta)
       |> handle_request_result(response_meta, task_ref)
       |> State.delete_in_flight_request(task_ref)
@@ -209,6 +210,13 @@ defmodule PoliteClient.Partition do
 
       :ok ->
         state
+
+      bad_result ->
+        raise "expected health status to conform to `PoliteClient.HealthChecker.status()`, but got #{
+                inspect(bad_result)
+              }. " <>
+                "Make sure the `checker/2` function provided within the `health_checker` configuration conforms to the " <>
+                "t:PoliteClient.HealthChecker.checker/0` spec."
     end
   end
 
@@ -290,7 +298,9 @@ defmodule PoliteClient.Partition do
         process_next_request(%{state | queued_requests: t})
       end
 
-    State.set_queued_requests(state, t)
+    state
+    |> State.set_unavailable()
+    |> State.set_queued_requests(t)
   end
 
   defp purge_all_requests(%{in_flight_requests: in_flight, queued_requests: queued} = state) do

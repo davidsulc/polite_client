@@ -51,16 +51,13 @@ defmodule PoliteClient.HealthChecker do
 
   @type suspension_duration() :: non_neg_integer() | :infinity
 
-  @spec to_config(config :: map()) :: {:ok, state()}
-  def to_config(%{} = config), do: {:ok, config}
-
   @spec to_config(:default) :: {:ok, state()}
   def to_config(:default),
     do: to_config(fn nil, _ -> {:ok, nil} end, nil)
 
   @spec to_config(checker(), term()) :: {:ok, state()}
 
-  def to_config(fun, initial_state) do
+  def to_config(fun, initial_state) when is_function(fun, 2) do
     config = %{
       checker: fun,
       status: :ok,
@@ -71,10 +68,21 @@ defmodule PoliteClient.HealthChecker do
     {:ok, config}
   end
 
+  def config_valid?(%{checker: checker, status: status, initial_state: _, internal_state: _}) do
+    is_function(checker, 2) && status_valid?(status)
+  end
+
+  def config_valid?(_config), do: false
+
+  defp status_valid?(:ok), do: true
+  defp status_valid?({:suspend, duration}) when is_integer(duration) and duration >= 0, do: true
+  defp status_valid?(_status), do: false
+
   def update_state(
         %{checker: checker, internal_state: internal_state} = state,
         %ResponseMeta{} = response_meta
       ) do
+    # TODO raise on bad return value
     {status, new_state} = checker.(internal_state, response_meta)
 
     %{state | internal_state: new_state, status: status}
