@@ -93,6 +93,14 @@ defmodule PoliteClient.Partition.State do
     args |> Keyword.get(:health_checker, :default) |> HealthChecker.to_config()
   end
 
+  @spec set_status(state :: t(), status :: status()) :: t()
+  def set_status(%__MODULE__{} = state, status), do: %{state | status: status}
+
+  @spec set_available(t()) :: t()
+  def set_available(%__MODULE__{} = state) do
+    %{state | available: true}
+  end
+
   @spec set_unavailable(t()) :: t()
   def set_unavailable(%__MODULE__{} = state) do
     %{state | available: false}
@@ -101,7 +109,7 @@ defmodule PoliteClient.Partition.State do
   @spec suspend(state :: t(), duration :: :infinity | reference()) :: t()
   def suspend(%__MODULE__{} = state, ref \\ :infinity)
       when is_reference(ref) or ref == :infinity do
-    %{state | status: {:suspended, ref}}
+    set_status(state, {:suspended, ref})
   end
 
   @spec enqueue(state :: t(), new_request :: PendingRequest.t()) :: t()
@@ -170,36 +178,46 @@ defmodule PoliteClient.Partition.State do
     do: %{state | in_flight_requests: in_flight}
 
   def update_health_checker_state(%__MODULE__{} = state, %ResponseMeta{} = response_meta) do
-    {status, new_state} =
-      state.health_checker.checker.(state.health_checker.internal_state, response_meta)
-
-    health_checker =
+    new_health_checker_state =
       state
-      |> Map.get(:health_checker)
-      |> Map.replace!(:internal_state, new_state)
-      |> Map.replace!(:status, status)
+      |> get_health_checker_state()
+      |> HealthChecker.update_state(response_meta)
 
-    %{state | health_checker: health_checker}
+    set_health_checker_state(state, new_health_checker_state)
   end
+
+  defp get_health_checker_state(%__MODULE__{health_checker: x}), do: x
+
+  defp set_health_checker_state(%__MODULE__{} = state, x), do: %{state | health_checker: x}
 
   def check_health(%__MODULE__{} = state), do: state.health_checker.status
 
-  def update_rate_limiter_state(
-        %__MODULE__{rate_limiter: %{limiter: limiter, internal_state: internal_state}} = state,
-        %ResponseMeta{} = response_meta
-      ) do
-    {computed_delay, new_state} = limiter.(internal_state, response_meta)
+  def reset_health_checker_internal_state(%__MODULE__{} = state) do
+    new_health_checker_state =
+      state |> get_health_checker_state() |> HealthChecker.reset_internal_state()
 
-    rate_limiter =
-      state
-      |> Map.get(:rate_limiter)
-      |> Map.replace!(:internal_state, new_state)
-      |> Map.replace!(:current_delay, clamp_delay(state.rate_limiter, computed_delay))
-
-    %{state | rate_limiter: rate_limiter}
+    set_health_checker_state(state, new_health_checker_state)
   end
 
-  defp clamp_delay(%{min_delay: min, max_delay: max}, delay), do: delay |> max(min) |> min(max)
+  def update_rate_limiter_state(%__MODULE__{} = state, %ResponseMeta{} = response_meta) do
+    new_rate_limiter_state =
+      state
+      |> get_rate_limiter_state()
+      |> RateLimiter.update_state(response_meta)
+
+    set_rate_limiter_state(state, new_rate_limiter_state)
+  end
+
+  defp get_rate_limiter_state(%__MODULE__{rate_limiter: x}), do: x
+
+  defp set_rate_limiter_state(%__MODULE__{} = state, x), do: %{state | rate_limiter: x}
+
+  def reset_rate_limiter_internal_state(%__MODULE__{} = state) do
+    new_rate_limiter_state =
+      state |> get_rate_limiter_state() |> RateLimiter.reset_internal_state()
+
+    set_rate_limiter_state(state, new_rate_limiter_state)
+  end
 
   def get_current_request_delay(%__MODULE__{} = state) do
     state

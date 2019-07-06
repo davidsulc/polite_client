@@ -6,6 +6,7 @@ defmodule PoliteClient.RateLimiter do
 
   @type state :: %{
           limiter: limiter(),
+          initial_state: term(),
           internal_state: term(),
           current_delay: non_neg_integer(),
           min_delay: non_neg_integer(),
@@ -51,6 +52,7 @@ defmodule PoliteClient.RateLimiter do
     # max_delay > min_delay, etc.
     config = %{
       limiter: fun,
+      initial_state: initial_state,
       internal_state: initial_state,
       current_delay: 0,
       min_delay: Keyword.get(opts, :min_delay, @min_delay),
@@ -59,4 +61,19 @@ defmodule PoliteClient.RateLimiter do
 
     {:ok, config}
   end
+
+  def update_state(
+        %{limiter: limiter, internal_state: internal_state} = state,
+        %ResponseMeta{} = response_meta
+      ) do
+    {computed_delay, new_state} = limiter.(internal_state, response_meta)
+    new_delay = clamp_delay(state, computed_delay)
+
+    %{state | internal_state: new_state, current_delay: new_delay}
+  end
+
+  defp clamp_delay(%{min_delay: min, max_delay: max}, delay), do: delay |> max(min) |> min(max)
+
+  @spec reset_internal_state(state :: state()) :: state()
+  def reset_internal_state(%{initial_state: i} = state), do: %{state | internal_state: i}
 end

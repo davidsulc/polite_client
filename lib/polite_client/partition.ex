@@ -55,8 +55,16 @@ defmodule PoliteClient.Partition do
   end
 
   @impl GenServer
+  # TODO document that on resume, next request is sent immediately (b/c the rate limiter and health checker
+  # states are reinitialized (which isn't true in the auto-resume case)
   def handle_call(:resume, _from, state) do
-    {:reply, :ok, do_resume(state)}
+    state =
+      state
+      |> State.reset_rate_limiter_internal_state()
+      |> State.reset_health_checker_internal_state()
+      |> do_resume()
+
+    {:reply, :ok, state}
   end
 
   @impl GenServer
@@ -188,10 +196,9 @@ defmodule PoliteClient.Partition do
   def terminate(_reason, state), do: purge_all_requests(state)
 
   defp suspend_if_not_healthy(%State{} = state, %ResponseMeta{} = response_meta) do
-    state
-    |> State.update_health_checker_state(response_meta)
-    |> State.check_health()
-    |> case do
+    state = State.update_health_checker_state(state, response_meta)
+
+    case State.check_health(state) do
       {:suspend, :infinity} ->
         State.suspend(state, :infinity)
 
@@ -207,15 +214,14 @@ defmodule PoliteClient.Partition do
 
   defp do_resume(%{status: :active} = state), do: state
 
-  # TODO document that on resume, next request is sent immediately
   defp do_resume(%{status: {:suspended, maybe_ref}} = state) do
     if is_reference(maybe_ref) do
       Process.cancel_timer(maybe_ref)
     end
 
-    # TODO NOW clear rate_limiter and health states => store initial states in state
-
-    process_next_request(%{state | status: :active})
+    state
+    |> State.set_status(:active)
+    |> process_next_request()
   end
 
   @spec handle_request_result(
@@ -258,9 +264,9 @@ defmodule PoliteClient.Partition do
     |> process_next_request()
   end
 
-  defp process_next_request(%{queued_requests: []} = state) do
-    %{state | available: true}
-  end
+  defp process_next_request(%{queued_requests: []} = state), do: State.set_available(state)
+
+  defp process_next_request(%{status: {:suspended, _}} = state), do: state
 
   defp process_next_request(%{queued_requests: q} = state) do
     [%PendingRequest{allocation: allocation} = next | t] = q
