@@ -195,8 +195,9 @@ defmodule PoliteClient.Partition do
       {:suspend, :infinity} ->
         State.suspend(state, :infinity)
 
-      # TODO NOW suspend at least as long as delay before next request
       {:suspend, duration} ->
+        # TODO document: suspend at least as long as delay before next request
+        duration = max(duration, State.get_current_request_delay(state))
         State.suspend(state, Process.send_after(self(), :auto_resume, duration))
 
       :ok ->
