@@ -22,7 +22,7 @@ defmodule PoliteClient.RateLimiter do
   # TODO validations
 
   @spec to_config(:default) :: {:ok, state()}
-  def to_config(:default), do: to_config({:constant, @min_delay})
+  def to_config(:default), do: to_config({:constant, @min_delay, []})
 
   def to_config({tag, arg}) when is_atom(tag), do: to_config({tag, arg, []})
 

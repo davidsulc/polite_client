@@ -4,6 +4,7 @@ defmodule PoliteClient.HealthChecker do
   @type state :: %{
           checker: checker(),
           status: status(),
+          initial_state: term(),
           internal_state: term()
         }
 
