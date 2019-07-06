@@ -3,7 +3,7 @@ defmodule PoliteClient do
   Documentation for PoliteClient.
   """
 
-  alias PoliteClient.{AllocatedRequest, Partition, PartitionsMgr, Request}
+  alias PoliteClient.{AllocatedRequest, Partition, PartitionsMgr}
 
   # Document: to "convert" into a sync request:
   # case async_request(method, url, headers, body, opts) do
@@ -23,7 +23,7 @@ defmodule PoliteClient do
   def async_request(method \\ :get, url, headers \\ [], body \\ "", opts \\ []) do
     uri = URI.parse(url)
 
-    request = %Request{
+    request = %{
       method: method,
       uri: uri,
       headers: headers,

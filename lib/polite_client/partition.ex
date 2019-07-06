@@ -11,7 +11,7 @@ defmodule PoliteClient.Partition do
 
   require Logger
 
-  alias PoliteClient.{AllocatedRequest, RateLimiter, Request}
+  alias PoliteClient.{AllocatedRequest, RateLimiter, Client}
 
   defmodule PendingRequest do
     @moduledoc false
@@ -20,7 +20,7 @@ defmodule PoliteClient.Partition do
 
     @type t :: %__MODULE__{
             allocation: AllocatedRequest.t(),
-            request: Request.t(),
+            request: Client.request(),
             task: nil | Task.t(),
             retries: non_neg_integer()
           }
@@ -46,7 +46,7 @@ defmodule PoliteClient.Partition do
 
     @type t :: %__MODULE__{
             key: String.t(),
-            client: client(),
+            client: Client.t(),
             health_checker: PoliteClient.HealthChecker.state(),
             rate_limiter: PoliteClient.RateLimiter.state(),
             max_retries: non_neg_integer(),
@@ -57,9 +57,6 @@ defmodule PoliteClient.Partition do
             in_flight_requests: %{required(reference()) => PendingRequest.t()},
             queued_requests: [PendingRequest.t()]
           }
-
-    @type client() ::
-            (Request.t() -> {:ok, request_result :: term()} | {:error, request_result :: term()})
 
     @type status :: :active | {:suspended, :infinity | reference()}
 
@@ -243,17 +240,17 @@ defmodule PoliteClient.Partition do
         state
         |> Map.get(:rate_limiter)
         |> Map.replace!(:internal_state, new_state)
-        |> Map.replace!(:request_delay, clamp_delay(state.rate_limiter, computed_delay))
+        |> Map.replace!(:current_delay, clamp_delay(state.rate_limiter, computed_delay))
 
       %{state | rate_limiter: rate_limiter}
     end
 
     defp clamp_delay(%{min_delay: min, max_delay: max}, delay), do: delay |> max(min) |> min(max)
 
-    def get_request_delay(%__MODULE__{} = state) do
+    def get_current_request_delay(%__MODULE__{} = state) do
       state
       |> Map.get(:rate_limiter)
-      |> Map.get(:request_delay)
+      |> Map.get(:current_delay)
     end
   end
 
@@ -262,10 +259,10 @@ defmodule PoliteClient.Partition do
     GenServer.start_link(__MODULE__, args, args)
   end
 
-  @spec async_request(GenServer.name(), Request.t()) ::
+  @spec async_request(GenServer.name(), Client.request()) ::
           AllocatedRequest.t()
           | {:error, :max_queued | :suspended | {:retries_exhausted, last_error :: term()}}
-  def async_request(name, %Request{} = request) do
+  def async_request(name, request) do
     GenServer.call(name, {:request, request})
   end
 
@@ -460,6 +457,11 @@ defmodule PoliteClient.Partition do
     process_next_request(%{state | status: :active})
   end
 
+  @spec handle_request_result(
+          state :: State.t(),
+          req_result :: Client.result(),
+          task_ref :: reference()
+        ) :: State.t()
   defp handle_request_result(state, req_result, task_ref) do
     pending_request = State.get_in_flight_request(state, task_ref)
     %AllocatedRequest{ref: ref, owner: pid} = PendingRequest.get_allocation(pending_request)
@@ -483,7 +485,7 @@ defmodule PoliteClient.Partition do
   defp schedule_next_request(%{status: {:suspended, _}} = state), do: state
 
   defp schedule_next_request(state) do
-    Process.send_after(self(), :process_next_request, State.get_request_delay(state))
+    Process.send_after(self(), :process_next_request, State.get_current_request_delay(state))
     state
   end
 
