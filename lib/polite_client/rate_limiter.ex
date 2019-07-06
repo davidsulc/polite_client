@@ -20,8 +20,10 @@ defmodule PoliteClient.RateLimiter do
 
   # TODO validations
 
-  @spec to_config(atom()) :: {:ok, state()}
+  @spec to_config(:default) :: {:ok, state()}
   def to_config(:default), do: to_config({:constant, @min_delay})
+
+  def to_config({tag, arg}) when is_atom(tag), do: to_config({tag, arg, []})
 
   @spec to_config({atom() | limiter(), term(), Keyword.t()}) :: {:ok, state()}
 
@@ -31,17 +33,20 @@ defmodule PoliteClient.RateLimiter do
       |> Keyword.put_new(:min_delay, delay)
       |> Keyword.put_new(:max_delay, delay)
 
-    to_config({fn nil, _response_meta -> {delay, nil} end, nil, opts})
+    to_config(fn nil, _response_meta -> {delay, nil} end, nil, opts)
   end
 
   def to_config({:relative, factor, opts}) do
     to_config(
-      {fn nil, %ResponseMeta{duration: duration} -> {round(duration / 1_000 * factor), nil} end,
-       nil, opts}
+      fn nil, %ResponseMeta{duration: duration} -> {round(duration / 1_000 * factor), nil} end,
+      nil,
+      opts
     )
   end
 
-  def to_config({fun, initial_state, opts}) do
+  @spec to_config(fun :: limiter(), initial_state :: term(), opts :: Keyword.t()) ::
+          {:ok, state()}
+  def to_config(fun, initial_state, opts \\ []) do
     # TODO validate delays: must be integers
     # max_delay > min_delay, etc.
     config = %{
@@ -54,9 +59,4 @@ defmodule PoliteClient.RateLimiter do
 
     {:ok, config}
   end
-
-  @spec to_config({atom() | limiter(), term()}) :: {:ok, state()}
-
-  def to_config({limiter, value}) when is_atom(limiter) or is_function(limiter, 3),
-    do: to_config({limiter, value, []})
 end

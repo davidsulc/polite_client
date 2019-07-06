@@ -18,7 +18,7 @@ defmodule PoliteClient.HealthChecker do
 
   # TODO use struct?
 
-  @spec to_config(atom()) :: {:ok, state()}
+  @spec to_config(:default) :: {:ok, state()}
   def to_config(:default),
     do:
       {:ok,
@@ -27,4 +27,16 @@ defmodule PoliteClient.HealthChecker do
          status: :ok,
          internal_state: nil
        }}
+
+  @spec to_config(checker(), term()) :: {:ok, state()}
+
+  def to_config(fun, initial_state) do
+    config = %{
+      checker: fun,
+      status: :ok,
+      internal_state: initial_state
+    }
+
+    {:ok, config}
+  end
 end

@@ -55,19 +55,15 @@ defmodule PoliteClient.Partition.State do
   @spec from_keywords(Keyword.t()) :: {:ok, t()} | {:error, reason :: term()}
   def from_keywords(args) when is_list(args) do
     with {:ok, client} <- get_client(args),
-         {:ok, rate_limiter_config} <- rate_limiter_config(args) do
+         {:ok, rate_limiter_config} <- rate_limiter_config(args),
+         {:ok, health_checker_config} <- health_checker_config(args) do
       state = %__MODULE__{
         key: Keyword.fetch!(args, :key),
         status: :active,
         available: true,
         client: client,
         rate_limiter: rate_limiter_config,
-        # TODO NOW
-        health_checker: %{
-          status: :ok,
-          checker: fn nil, _ref -> {{:suspend, 3_000}, nil} end,
-          internal_state: nil
-        },
+        health_checker: health_checker_config,
         in_flight_requests: %{},
         queued_requests: [],
         max_retries: Keyword.get(args, :max_retries, @max_retries),
@@ -91,6 +87,10 @@ defmodule PoliteClient.Partition.State do
 
   defp rate_limiter_config(args) do
     args |> Keyword.get(:rate_limiter, :default) |> RateLimiter.to_config()
+  end
+
+  defp health_checker_config(args) do
+    args |> Keyword.get(:health_checker, :default) |> HealthChecker.to_config()
   end
 
   @spec set_unavailable(t()) :: t()
