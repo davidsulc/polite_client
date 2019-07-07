@@ -20,18 +20,8 @@ defmodule PoliteClient do
   #     {^ref, result} -> result
   #   end
   # end
-  def async_request(method \\ :get, url, headers \\ [], body \\ "", opts \\ []) do
-    uri = URI.parse(url)
-
-    request = %{
-      method: method,
-      uri: uri,
-      headers: headers,
-      body: body,
-      opts: opts
-    }
-
-    with_partition(uri.host, &Partition.async_request(&1, request))
+  def async_request(key, request) do
+    with_partition(key, &Partition.async_request(&1, request))
   end
 
   def allocated?(%AllocatedRequest{partition: key, ref: ref}) do
