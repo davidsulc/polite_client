@@ -43,7 +43,6 @@ defmodule PoliteClient do
       {:ok, via_tuple} ->
         fun.(via_tuple)
 
-      # TODO start partition dynamically
       :not_found ->
         {:error, :no_partition}
     end
