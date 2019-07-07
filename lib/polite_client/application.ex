@@ -19,7 +19,7 @@ defmodule PoliteClient.Application do
         partition_supervisor_name: @partition_supervisor_name,
         registry: @registry_name,
         task_supervisor: @task_supervisor_name,
-        max_children: Keyword.get(args, :max_children, :infinity)
+        max_partitions: Keyword.get(args, :max_partitions, :infinity)
       }
     ]
 
