@@ -2,6 +2,13 @@ defmodule PoliteClient.AllocatedRequest do
   @moduledoc """
   Struct representing requests that are acknowledged by the `PoliteClient`, as well
   as related functions.
+
+  Allocated requests are acknowledgements from the PoliteClient regarding requests
+  made by clients: when an AllocatedRequest is received, it signifies that the PoliteClient
+  will make a best effort attempt to execute the request.
+
+  Client will be sent a message tagged with the AllocatedRequest's `ref` value to provide the
+  request's result.
   """
 
   @typedoc """

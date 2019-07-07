@@ -1,10 +1,21 @@
 defmodule PoliteClient.HealthChecker do
   @moduledoc """
   Functionality related to health checks.
+
+  In order to avoid overwhelming a remote host that is struggling (e.g. having requests
+  time out, taking too long to respond), the PoliteClient will suspend a partition whose
+  health checks fail.
+
+  When a partition is suspended, no requests to the remote host will be performed.
+
+  If the suspension is temporary (given a finite duration), the partition will return to
+  active state on its own. On the other hand, if the suspension is permanent, the partition
+  will require a manual intervention (via `PoliteClient.resume/1`) to return to the active state.
   """
 
   alias PoliteClient.ResponseMeta
 
+  @typedoc "The health checker's internal state."
   @type state :: %{
           checker: checker(),
           status: status(),
@@ -12,7 +23,15 @@ defmodule PoliteClient.HealthChecker do
           internal_state: term()
         }
 
+  @typedoc """
+  The status indicating whether the partition is currently healthy, or if it should be suspended.
+  """
   @type status :: :ok | {:suspend, suspension_duration()}
+
+  @typedoc """
+  The (opaque) internal state that the t:PoliteClient.HealthChecker.checker/0` receives and
+  updates.
+  """
   @type internal_state :: term()
 
   @typedoc """
@@ -27,7 +46,7 @@ defmodule PoliteClient.HealthChecker do
   Every time it is called, the function will receive the current `t:PoliteClient.HealthChecker.internal_state/0`
   and the `t:PoliteClient.ResponseMeta.t/0` corresponding to the request result.
 
-  The function should return a tuple containing the new `t:PoliteClient.HealthChecker.status/0` for the host
+  The function should return a tuple containing the new `t:PoliteClient.HealthChecker.status/0` for the partition
   and the updated `t:PoliteClient.HealthChecker.internal_state/0`. The `status` must be one of:
 
   - `:ok` if the host is healthy
@@ -49,17 +68,34 @@ defmodule PoliteClient.HealthChecker do
           (internal_state :: internal_state(), response_meta :: ResponseMeta.t() ->
              {status(), new_internal_state :: internal_state()})
 
+  @typedoc """
+  A duration for which to suspend the related partition.
+
+  The partition will "self heal" and resume normal operations once the duration (in milliseconds) runs out.
+  If the duration is `:infinity`, the partition will not resume operations on itself and must be reactived
+  manually (typically via `PoliteClient.resume/1`.
+  """
   @type suspension_duration() :: non_neg_integer() | :infinity
 
+  @doc "Returns a health checker configuration that always considers the partition to be in a healthy state."
   @spec to_config(:default) :: {:ok, state()}
   def to_config(:default),
     do: to_config(fn nil, _ -> {:ok, nil} end, nil)
 
-  @spec to_config(checker(), term()) :: {:ok, state()}
+  @doc """
+  Returns a health checker configuration.
 
-  def to_config(fun, initial_state) when is_function(fun, 2) do
+  The configuration will use the `checker_function` to determine the partition's health after every request,
+  and will initialize its internal state with `initial_state`.
+
+  The health checker's internal state will also be reinitialized to the value of `initial_state` when a partition
+  is manually resumed.
+  """
+  @spec to_config(checker_function :: checker(), initial_state :: internal_state()) ::
+          {:ok, state()}
+  def to_config(checker_function, initial_state) when is_function(checker_function, 2) do
     config = %{
-      checker: fun,
+      checker: checker_function,
       status: :ok,
       initial_state: initial_state,
       internal_state: initial_state
@@ -67,6 +103,9 @@ defmodule PoliteClient.HealthChecker do
 
     {:ok, config}
   end
+
+  @doc "Returns a boolean indicating whether the given argument is a valid internal state."
+  @spec config_valid?(term()) :: boolean()
 
   def config_valid?(%{checker: checker, status: status, initial_state: _, internal_state: _}) do
     is_function(checker, 2) && status_valid?(status)
@@ -78,6 +117,13 @@ defmodule PoliteClient.HealthChecker do
   defp status_valid?({:suspend, duration}) when is_integer(duration) and duration >= 0, do: true
   defp status_valid?(_status), do: false
 
+  @doc """
+  Updates the internal state.
+
+  Executes the `t:PoliteClient.HealthChecker.checker/0` function, and uses its return value to update
+  the internal state.
+  """
+  @spec update_state(state :: state(), response_meta :: ResponseMeta.t()) :: state()
   def update_state(
         %{checker: checker, internal_state: internal_state} = state,
         %ResponseMeta{} = response_meta
@@ -88,6 +134,7 @@ defmodule PoliteClient.HealthChecker do
     %{state | internal_state: new_state, status: status}
   end
 
+  @doc "Resets the internal state to the `t:PoliteClient.HealthChecker.internal_state/0` initially provided."
   @spec reset_internal_state(state :: state()) :: state()
   def reset_internal_state(%{initial_state: i} = state), do: %{state | internal_state: i}
 end
