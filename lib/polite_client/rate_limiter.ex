@@ -25,7 +25,7 @@ defmodule PoliteClient.RateLimiter do
   @type duration :: non_neg_integer()
 
   @typedoc """
-  The (opaque) internal state that the t:PoliteClient.RateLimiter.limiter/0` receives and
+  The (opaque) internal state that the `t:PoliteClient.RateLimiter.limiter/0` receives and
   updates.
   """
   @type internal_state :: term()

@@ -1,4 +1,6 @@
 defmodule PoliteClient.PartitionsMgr do
+  @moduledoc false
+
   use GenServer
 
   require Logger
@@ -11,7 +13,7 @@ defmodule PoliteClient.PartitionsMgr do
     GenServer.start_link(__MODULE__, args, name: @name)
   end
 
-  @spec start(key :: term(), opts :: Keyword.t()) ::
+  @spec start(key :: PoliteClient.partition_key(), opts :: Keyword.t()) ::
           :ok
           | {:error, {:key_conflict, pid()}}
           | {:error, :max_partitions}
@@ -19,19 +21,26 @@ defmodule PoliteClient.PartitionsMgr do
     GenServer.call(@name, {:start_partition, {key, opts}})
   end
 
-  @spec find_name(key :: term()) :: {:ok, {:via, module(), term()}} | :not_found
+  @doc "Find the partition corresponding to `key`."
+  @spec find_name(key :: PoliteClient.partition_key()) ::
+          {:ok, {:via, module(), term()}} | :not_found
   def find_name(key) do
     GenServer.call(@name, {:find_partition, key})
   end
 
+  @doc "Returns true if the partition still has the request allocated."
+  @spec allocated?(PoliteClient.partition_key(), reference()) :: boolean()
   def allocated?(key, ref) do
     GenServer.call(@name, {:allocated?, key, ref})
   end
 
+  @doc "Cancel the request."
+  @spec cancel(PoliteClient.partition_key(), reference()) :: :ok
   def cancel(key, ref) do
     GenServer.call(@name, {:cancel, key, ref})
   end
 
+  @doc "Suspend all partitions."
   @spec suspend_all(opts :: Keyword.t()) :: :ok
   def suspend_all(opts \\ []) do
     GenServer.call(@name, {:suspend_all, opts})
@@ -75,12 +84,10 @@ defmodule PoliteClient.PartitionsMgr do
 
   @impl GenServer
   def handle_call({:allocated?, key, ref}, _from, state) do
-    allocated? =
-      state
-      |> find_partition(key)
-      |> Partition.allocated?(ref)
-
-    {:reply, allocated?, state}
+    case find_partition(state, key) do
+      nil -> {:reply, false, state}
+      location -> {:reply, Partition.allocated?(location, ref), state}
+    end
   end
 
   @impl GenServer

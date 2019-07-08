@@ -7,7 +7,7 @@ defmodule PoliteClient.AllocatedRequest do
   made by clients: when an AllocatedRequest is received, it signifies that the PoliteClient
   will make a best effort attempt to execute the request.
 
-  Client will be sent a message tagged with the AllocatedRequest's `ref` value to provide the
+  Caller will be sent a message tagged with the AllocatedRequest's `ref` value to provide the
   request's result.
   """
 
@@ -19,7 +19,7 @@ defmodule PoliteClient.AllocatedRequest do
   @type t :: %__MODULE__{
           ref: reference(),
           owner: pid(),
-          partition: String.t()
+          partition: PoliteClient.partition_key()
         }
 
   @doc """

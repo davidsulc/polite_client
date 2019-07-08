@@ -23,6 +23,24 @@ defmodule PoliteClient.Partition.State do
   @max_queued 50
   @max_retries 3
 
+  @doc """
+  Keys:
+
+  * `:key` - the partition key
+  * `:client` - the client implementation with which to execute requests
+  * `:health_checker` - 
+  * `:rate_limiter` - 
+  * `:max_retries` - the number of times to retry a failing request before returning an error
+  * `:max_queued` - max number of requests to keep in queue
+  * `:task_supervisor` - supervisor for the request execution tasks
+  * `:status` - whether the partition is active or suspended (and whether it was suspended indefinitely
+      or will self heal)
+  * `:available` - boolean indicating if a request can be executed immediately (taking into consideration
+      rate limiting, etc.): it's not enough for the queue to be empty (b/c the last request may have been
+      made too recently)
+  * `:in_flight_requests` - the requests that are currently being executed
+  * `:queued_requests` - the requests that are queued for execution when capacity is available
+  """
   @enforce_keys [
     :key,
     :client,
@@ -45,8 +63,6 @@ defmodule PoliteClient.Partition.State do
     :max_queued,
     :task_supervisor,
     status: :active,
-    # indicates whether a request can be made (given rate limiting): it's not enough
-    # for the queue to be empty (b/c the last request may have been made too recently)
     available: true,
     in_flight_requests: %{},
     queued_requests: []

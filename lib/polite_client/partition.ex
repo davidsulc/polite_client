@@ -19,6 +19,7 @@ defmodule PoliteClient.Partition do
     GenServer.start_link(__MODULE__, args, args)
   end
 
+  @doc "Executes a request asynchronously."
   @spec async_request(GenServer.name(), Client.request()) ::
           AllocatedRequest.t()
           | {:error, :max_queued | :suspended | {:retries_exhausted, last_error :: term()}}
@@ -26,21 +27,25 @@ defmodule PoliteClient.Partition do
     GenServer.call(name, {:request, request})
   end
 
+  @doc "Returns true if the request is still allocated."
   @spec allocated?(GenServer.name(), reference()) :: boolean()
   def allocated?(name, ref) do
     GenServer.call(name, {:allocated?, ref})
   end
 
-  @spec cancel(GenServer.name(), AllocatedRequest.t()) :: boolean()
+  @doc "Cancel the request."
+  @spec cancel(GenServer.name(), AllocatedRequest.t()) :: :ok
   def cancel(name, %AllocatedRequest{} = allocation) do
     GenServer.call(name, {:cancel, allocation})
   end
 
+  @doc "Suspend the partition."
   @spec suspend(GenServer.name(), Keyword.t()) :: :ok
   def suspend(name, opts \\ []) do
     GenServer.call(name, {:suspend, opts})
   end
 
+  @doc "Unsuspend partition."
   @spec resume(GenServer.name()) :: :ok
   def resume(name) do
     GenServer.call(name, :resume)
@@ -55,7 +60,7 @@ defmodule PoliteClient.Partition do
   end
 
   @impl GenServer
-  # TODO document that on resume, next request is sent immediately (b/c the rate limiter and health checker
+  # on resume, next request is sent immediately (b/c the rate limiter and health checker
   # states are reinitialized (which isn't true in the auto-resume case)
   def handle_call(:resume, _from, state) do
     state =
@@ -74,6 +79,7 @@ defmodule PoliteClient.Partition do
 
   @impl GenServer
   def handle_call({:cancel, %AllocatedRequest{} = allocation}, _from, state) do
+    # TODO FIXME send_cancelation for all canceled requests!
     {to_cancel, remaining} =
       Enum.split_with(state.in_flight_requests, fn
         {_task_ref, pending_request} ->
@@ -91,7 +97,7 @@ defmodule PoliteClient.Partition do
       |> schedule_next_request()
       |> State.set_in_flight_requests(Enum.into(remaining, %{}))
 
-    {:reply, :canceled, state}
+    {:reply, :ok, state}
   end
 
   @impl GenServer
@@ -320,7 +326,7 @@ defmodule PoliteClient.Partition do
 
     case Task.shutdown(task) do
       {:ok, {_duration, result}} -> send(pid, {ref, result})
-      _res -> send(pid, {ref, :canceled})
+      _res -> send_cancelation(ref, pid)
     end
   end
 

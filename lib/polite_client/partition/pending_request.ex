@@ -1,5 +1,8 @@
 defmodule PoliteClient.Partition.PendingRequest do
   @moduledoc false
+  @doc """
+  Struct representing a request that will be executed later.
+  """
 
   alias PoliteClient.{AllocatedRequest, Client}
 

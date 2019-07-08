@@ -3,7 +3,7 @@ defmodule PoliteClient.Client do
   Specification of the client functionality the PoliteClient will use to make requests.
 
   The client provides an abstraction to make requests on the caller's behalf. It will
-  receive a request, and will return a standardized `{:ok, ...}` or `{:error, ...}`
+  receive a request, and will return a normalized `{:ok, ...}` or `{:error, ...}`
   response. The request itself is treated as opaque by the PoliteClient: only the
   `t:PoliteClient.Client.t/0` itself must know how to handle the request argument in order to
   make the request itself.

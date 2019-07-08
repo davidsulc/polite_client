@@ -2,8 +2,8 @@ defmodule PoliteClient.ResponseMeta do
   @moduledoc """
   Struct containing information regarding a successful request.
 
-  Instances of this struct are used to update the states of `t:PoliteClient.RateLimiter.t/0` and
-  `t:PoliteClient.HealthChecker.t/0` implementations.
+  Instances of this struct are used to update the `t:PoliteClient.RateLimiter.internal_state/0` and
+  `t:PoliteClient.HealthChecker.internal_state/0` states.
   """
 
   alias PoliteClient.Client

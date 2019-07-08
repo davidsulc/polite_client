@@ -11,6 +11,10 @@ defmodule PoliteClient.HealthChecker do
   If the suspension is temporary (given a finite duration), the partition will return to
   active state on its own. On the other hand, if the suspension is permanent, the partition
   will require a manual intervention (via `PoliteClient.resume/1`) to return to the active state.
+
+  When resuming automatically from suspension the health checker and rate limiter states are
+  preserved: the next request will NOT be triggered immediately (whereas it would be on manual
+  resume with `PoliteClient.resume/1`).
   """
 
   alias PoliteClient.ResponseMeta
@@ -29,7 +33,7 @@ defmodule PoliteClient.HealthChecker do
   @type status :: :ok | {:suspend, suspension_duration()}
 
   @typedoc """
-  The (opaque) internal state that the t:PoliteClient.HealthChecker.checker/0` receives and
+  The (opaque) internal state that the `t:PoliteClient.HealthChecker.checker/0` receives and
   updates.
   """
   @type internal_state :: term()

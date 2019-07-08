@@ -7,7 +7,16 @@ defmodule PoliteClient.MixProject do
       version: "0.1.0",
       elixir: "~> 1.8",
       start_permanent: Mix.env() == :prod,
-      deps: deps()
+      deps: deps(),
+
+      # Docs
+      name: "PoliteClient",
+      source_url: "https://github.com/davidsulc/polite_client",
+      # homepage_url: "http://YOUR_PROJECT_HOMEPAGE",
+      docs: [
+        main: "PoliteClient",
+        extras: ["README.md"]
+      ]
     ]
   end
 
@@ -24,7 +33,8 @@ defmodule PoliteClient.MixProject do
     [
       {:dialyxir, "~> 0.5.1", only: :dev},
       # TODO remove
-      {:mojito, "~> 0.3.0", only: :dev}
+      {:mojito, "~> 0.3.0", only: :dev},
+      {:ex_doc, "~> 0.19", only: :dev, runtime: false}
     ]
   end
 end
