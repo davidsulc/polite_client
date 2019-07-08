@@ -5,7 +5,7 @@ defmodule PoliteClient.PartitionsMgr do
 
   require Logger
 
-  alias PoliteClient.{Partition, PartitionsSupervisor}
+  alias PoliteClient.{AllocatedRequest, Partition, PartitionsSupervisor}
 
   @name __MODULE__
 
@@ -35,9 +35,9 @@ defmodule PoliteClient.PartitionsMgr do
   end
 
   @doc "Cancel the request."
-  @spec cancel(PoliteClient.partition_key(), reference()) :: :ok
-  def cancel(key, ref) do
-    GenServer.call(@name, {:cancel, key, ref})
+  @spec cancel(PoliteClient.partition_key(), AllocatedRequest.t()) :: :ok
+  def cancel(key, %AllocatedRequest{} = allocated_request) do
+    GenServer.call(@name, {:cancel, key, allocated_request})
   end
 
   @doc "Suspend all partitions."
@@ -91,11 +91,11 @@ defmodule PoliteClient.PartitionsMgr do
   end
 
   @impl GenServer
-  def handle_call({:cancel, key, ref}, _from, state) do
+  def handle_call({:cancel, key, %AllocatedRequest{} = allocated_request}, _from, state) do
     cancelation_result =
       state
       |> find_partition(key)
-      |> Partition.cancel(ref)
+      |> Partition.cancel(allocated_request)
 
     {:reply, cancelation_result, state}
   end

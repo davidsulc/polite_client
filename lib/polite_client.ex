@@ -64,8 +64,8 @@ defmodule PoliteClient do
   will be a no op.
   """
   @spec cancel(allocated_request :: AllocatedRequest.t()) :: :ok
-  def cancel(%AllocatedRequest{partition: key, ref: ref}) do
-    PartitionsMgr.cancel(key, ref)
+  def cancel(%AllocatedRequest{partition: key} = allocated_request) do
+    PartitionsMgr.cancel(key, allocated_request)
   end
 
   @doc """
