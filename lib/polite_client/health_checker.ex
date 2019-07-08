@@ -19,13 +19,19 @@ defmodule PoliteClient.HealthChecker do
 
   alias PoliteClient.ResponseMeta
 
-  @typedoc "The health checker's internal state."
-  @type state :: %{
+  @typedoc "The healther checker configuration."
+  @type config :: %{
           checker: checker(),
-          status: status(),
-          initial_state: term(),
-          internal_state: term()
+          initial_state: term()
         }
+
+  @typedoc "The health checker's state."
+  @opaque state :: %{
+            checker: checker(),
+            status: status(),
+            initial_state: term(),
+            internal_state: term()
+          }
 
   @typedoc """
   The status indicating whether the partition is currently healthy, or if it should be suspended.
@@ -82,7 +88,7 @@ defmodule PoliteClient.HealthChecker do
   @type suspension_duration() :: non_neg_integer() | :infinity
 
   @doc "Returns a health checker configuration that always considers the partition to be in a healthy state."
-  @spec to_config(:default) :: {:ok, state()}
+  @spec to_config(:default) :: {:ok, config()}
   def to_config(:default),
     do: to_config(fn nil, _ -> {:ok, nil} end, nil)
 
@@ -96,13 +102,11 @@ defmodule PoliteClient.HealthChecker do
   is manually resumed.
   """
   @spec to_config(checker_function :: checker(), initial_state :: internal_state()) ::
-          {:ok, state()}
+          {:ok, config()}
   def to_config(checker_function, initial_state) when is_function(checker_function, 2) do
     config = %{
       checker: checker_function,
-      status: :ok,
-      initial_state: initial_state,
-      internal_state: initial_state
+      initial_state: initial_state
     }
 
     {:ok, config}
@@ -111,15 +115,22 @@ defmodule PoliteClient.HealthChecker do
   @doc "Returns a boolean indicating whether the given argument is a valid internal state."
   @spec config_valid?(term()) :: boolean()
 
-  def config_valid?(%{checker: checker, status: status, initial_state: _, internal_state: _}) do
-    is_function(checker, 2) && status_valid?(status)
+  def config_valid?(%{checker: checker, initial_state: _}) do
+    is_function(checker, 2)
   end
 
   def config_valid?(_config), do: false
 
-  defp status_valid?(:ok), do: true
-  defp status_valid?({:suspend, duration}) when is_integer(duration) and duration >= 0, do: true
-  defp status_valid?(_status), do: false
+  @doc false
+  @spec to_state(config()) :: state()
+  def to_state(%{checker: checker, initial_state: initial_state}) do
+    %{
+      checker: checker,
+      status: :ok,
+      initial_state: initial_state,
+      internal_state: initial_state
+    }
+  end
 
   @doc """
   Updates the internal state.

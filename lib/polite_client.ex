@@ -124,7 +124,7 @@ defmodule PoliteClient do
   TODO
 
   * `rate_limiter` - a  valid `t:PoliteClient.RateLimiter.config/0`
-  * `health_checker`
+  * `health_checker` - a  valid `t:PoliteClient.HealthChecker.config/0`
   * `max_retries`
   * `max_queued`
   """

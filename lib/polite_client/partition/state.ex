@@ -86,7 +86,7 @@ defmodule PoliteClient.Partition.State do
         available: true,
         client: client,
         rate_limiter: RateLimiter.to_state(rate_limiter_config),
-        health_checker: health_checker_config,
+        health_checker: HealthChecker.to_state(health_checker_config),
         in_flight_requests: %{},
         queued_requests: [],
         max_retries: Keyword.get(args, :max_retries, @max_retries),
