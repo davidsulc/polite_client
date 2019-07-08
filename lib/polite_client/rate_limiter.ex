@@ -11,15 +11,23 @@ defmodule PoliteClient.RateLimiter do
   @min_delay 1_000
   @max_delay 120_000
 
-  @typedoc "The rate limiter's internal state."
-  @type state :: %{
-          limiter: limiter(),
-          initial_state: term(),
-          internal_state: term(),
-          current_delay: duration(),
-          min_delay: duration(),
-          max_delay: duration()
+  @typedoc "The rate limiter configuration."
+  @type config :: %{
+          required(:limiter) => limiter(),
+          required(:initial_state) => term(),
+          optional(:min_delay) => duration(),
+          optional(:max_delay) => duration()
         }
+
+  @typedoc "The rate limiter's state."
+  @opaque state :: %{
+            limiter: limiter(),
+            initial_state: term(),
+            internal_state: term(),
+            current_delay: duration(),
+            min_delay: duration(),
+            max_delay: duration()
+          }
 
   @typedoc "A time duration in milliseconds."
   @type duration :: non_neg_integer()
@@ -51,17 +59,17 @@ defmodule PoliteClient.RateLimiter do
   """
   @type limiter() ::
           (internal_state :: internal_state(), response_meta :: ResponseMeta.t() ->
-             {next_request_delay :: non_neg_integer(), new_internal_state :: internal_state()})
+             {next_request_delay :: duration(), new_internal_state :: internal_state()})
 
   # TODO validations
 
   @doc "Returns a rate limiter configuration that produces a constant 1 second delay between requests."
-  @spec to_config(:default) :: {:ok, state()}
+  @spec to_config(:default) :: {:ok, config()}
   def to_config(:default), do: to_config({:constant, @min_delay, []})
 
   def to_config({tag, arg}) when is_atom(tag), do: to_config({tag, arg, []})
 
-  @spec to_config({:constant | :relative, term(), Keyword.t()}) :: {:ok, state()}
+  @spec to_config({:constant | :relative, term(), Keyword.t()}) :: {:ok, config()}
 
   @doc """
   Returns a rate limiter configuration for common limiters.
@@ -105,7 +113,7 @@ defmodule PoliteClient.RateLimiter do
   is manually resumed.
   """
   @spec to_config(limiter_function :: limiter(), initial_state :: term(), opts :: Keyword.t()) ::
-          {:ok, state()}
+          {:ok, config()}
   def to_config(limiter_function, initial_state, opts \\ [])
       when is_function(limiter_function, 2) do
     # TODO validate delays: must be integers
@@ -113,32 +121,49 @@ defmodule PoliteClient.RateLimiter do
     config = %{
       limiter: limiter_function,
       initial_state: initial_state,
-      internal_state: initial_state,
-      current_delay: 0,
-      min_delay: Keyword.get(opts, :min_delay, @min_delay),
-      max_delay: Keyword.get(opts, :max_delay, @max_delay)
+      min_delay: Keyword.get(opts, :min_delay),
+      max_delay: Keyword.get(opts, :max_delay)
     }
 
     {:ok, config}
   end
 
+  @doc false
+  @spec to_state(config()) :: state()
+  def to_state(%{limiter: limiter, initial_state: initial_state}) do
+    %{
+      limiter: limiter,
+      initial_state: initial_state,
+      internal_state: initial_state,
+      current_delay: 0
+    }
+    |> set_delay_boundary(:min_delay)
+    |> set_delay_boundary(:max_delay)
+  end
+
+  defp set_delay_boundary(state, boundary_name) when boundary_name in [:min_delay, :max_delay] do
+    case Map.get(state, boundary_name) do
+      delay when is_integer(delay) and delay >= 0 -> state
+      _ -> Map.put(state, boundary_name, boundary_default(boundary_name))
+    end
+  end
+
+  defp boundary_default(:min_delay), do: @min_delay
+  defp boundary_default(:max_delay), do: @max_delay
+
   @doc "Returns a boolean indicating whether the given argument is a valid internal state."
-  def config_valid?(%{
-        limiter: limiter,
-        initial_state: _,
-        internal_state: _,
-        current_delay: current_delay,
-        min_delay: min_delay,
-        max_delay: max_delay
-      }) do
-    is_function(limiter, 2) && delay_valid?(current_delay) && delay_valid?(min_delay) &&
-      delay_valid?(max_delay)
+  @spec config_valid?(config()) :: boolean()
+  def config_valid?(%{limiter: limiter, initial_state: _} = config) do
+    is_function(limiter, 2) &&
+      config |> Map.get(:min_delay) |> optional_delay_valid?() &&
+      config |> Map.get(:max_delay) |> optional_delay_valid?()
   end
 
   def config_valid?(_config), do: false
 
-  defp delay_valid?(delay) when is_integer(delay) and delay >= 0, do: true
-  defp delay_valid?(_delay), do: false
+  defp optional_delay_valid?(nil), do: true
+  defp optional_delay_valid?(delay) when is_integer(delay) and delay >= 0, do: true
+  defp optional_delay_valid?(_delay), do: false
 
   @doc """
   Updates the internal state.

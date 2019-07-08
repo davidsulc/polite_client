@@ -56,7 +56,6 @@ defmodule PoliteClient do
   @doc """
   Cancels a request.
 
-  TODO FIXME this isn't currently true!
   Assuming the `allocated_request` was know to the partition, the caller will receive a
   `{ref, :canceled}` message, where `ref` is the reference matching `allocated_request.ref`.
 
@@ -118,10 +117,16 @@ defmodule PoliteClient do
   forgiving health checker implementation.
 
   These options MUST be provided:
-  TODO
+
+  * `client` - the `t:PoliteClient.Client.t()` implementation to use when executing requests
 
   These options MAY be provided:
   TODO
+
+  * `rate_limiter` - a  valid `t:PoliteClient.RateLimiter.config/0`
+  * `health_checker`
+  * `max_retries`
+  * `max_queued`
   """
   @spec start_partition(key :: partition_key(), opts :: Keyword.t()) ::
           :ok

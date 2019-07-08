@@ -71,7 +71,9 @@ defmodule PoliteClient.Partition.State do
   @spec from_keywords(Keyword.t()) :: {:ok, t()} | {:error, reason :: term()}
   def from_keywords(args) when is_list(args) do
     client = Keyword.get(args, :client)
+
     rate_limiter_config = Keyword.get(args, :rate_limiter, RateLimiter.to_config(:default))
+
     health_checker_config = Keyword.get(args, :health_checker, HealthChecker.to_config(:default))
 
     with {:client, {:ok, client}} <- {:client, Client.validate(client)},
@@ -83,7 +85,7 @@ defmodule PoliteClient.Partition.State do
         status: :active,
         available: true,
         client: client,
-        rate_limiter: rate_limiter_config,
+        rate_limiter: RateLimiter.to_state(rate_limiter_config),
         health_checker: health_checker_config,
         in_flight_requests: %{},
         queued_requests: [],
