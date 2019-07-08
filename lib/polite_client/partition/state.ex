@@ -1,7 +1,7 @@
 defmodule PoliteClient.Partition.State do
   @moduledoc false
 
-  alias PoliteClient.{AllocatedRequest, Client, HealthChecker, RateLimiter, ResponseMeta}
+  alias PoliteClient.{Client, HealthChecker, RateLimiter, ResponseMeta}
   alias PoliteClient.Partition.PendingRequest
 
   @type t :: %__MODULE__{
@@ -132,22 +132,9 @@ defmodule PoliteClient.Partition.State do
   def queued?(%__MODULE__{queued_requests: q}, ref) when is_reference(ref),
     do: has_pending_request_with_ref?(q, ref)
 
-  @spec set_queued_requests(state :: t(), request :: PendingRequest.t()) :: t()
+  @spec set_queued_requests(state :: t(), requests :: [PendingRequest.t()]) :: t()
   def set_queued_requests(%__MODULE__{} = state, q) do
     %{state | queued_requests: q}
-  end
-
-  @spec delete_queued_requests_by_allocation(state :: t(), allocation :: AllocatedRequest.t()) ::
-          t()
-  def delete_queued_requests_by_allocation(
-        %__MODULE__{} = state,
-        %AllocatedRequest{} = allocation
-      ) do
-    %{
-      state
-      | queued_requests:
-          Enum.reject(state.queued_requests, &PendingRequest.for_allocation?(&1, allocation))
-    }
   end
 
   @spec in_flight?(state :: t(), ref :: reference()) :: boolean()

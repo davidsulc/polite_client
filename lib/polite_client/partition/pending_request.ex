@@ -25,4 +25,20 @@ defmodule PoliteClient.Partition.PendingRequest do
     |> get_allocation()
     |> AllocatedRequest.same?(allocation)
   end
+
+  @doc "Cancels a pending request and notifies the caller."
+  @spec cancel(t()) :: no_return()
+  def cancel(%__MODULE__{} = pending_request) do
+    allocated_request = get_allocation(pending_request)
+
+    pending_request
+    |> shutdown_associated_task()
+    |> case do
+      {:ok, {_duration, result}} -> AllocatedRequest.send_result(allocated_request, result)
+      _ -> AllocatedRequest.cancel_and_notify(allocated_request)
+    end
+  end
+
+  defp shutdown_associated_task(%__MODULE__{task: nil}), do: :no_task
+  defp shutdown_associated_task(%__MODULE__{task: task}), do: Task.shutdown(task)
 end

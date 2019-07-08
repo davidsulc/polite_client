@@ -40,4 +40,11 @@ defmodule PoliteClient.AllocatedRequest do
   @spec same?(left :: t(), right :: t()) :: boolean()
   def same?(%__MODULE__{ref: ref}, %__MODULE__{ref: ref}), do: true
   def same?(_left, _right), do: false
+
+  def cancel_and_notify(%__MODULE__{ref: ref, owner: pid}) do
+    Process.demonitor(ref, [:flush])
+    send(pid, {ref, :canceled})
+  end
+
+  def send_result(%__MODULE__{ref: ref, owner: pid}, result), do: send(pid, {ref, result})
 end

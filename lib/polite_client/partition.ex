@@ -79,23 +79,21 @@ defmodule PoliteClient.Partition do
 
   @impl GenServer
   def handle_call({:cancel, %AllocatedRequest{} = allocation}, _from, state) do
-    # TODO FIXME send_cancelation for all canceled requests!
-    {to_cancel, remaining} =
-      Enum.split_with(state.in_flight_requests, fn
-        {_task_ref, pending_request} ->
-          PendingRequest.for_allocation?(pending_request, allocation)
-      end)
+    {in_flight_to_cancel, in_flight_remaining} =
+      state.in_flight_requests
+      |> Map.values()
+      |> Enum.split_with(&PendingRequest.for_allocation?(&1, allocation))
 
-    Enum.each(to_cancel, fn {_, %PendingRequest{task: %Task{ref: ref, pid: pid}}} ->
-      Process.demonitor(ref, [:flush])
-      :ok = Task.Supervisor.terminate_child(state.task_supervisor, pid)
-    end)
+    {queued_to_cancel, queued_remaining} =
+      Enum.split_with(state.queued_requests, &PendingRequest.for_allocation?(&1, allocation))
+
+    Enum.each(in_flight_to_cancel ++ queued_to_cancel, &PendingRequest.cancel/1)
 
     state =
       state
-      |> State.delete_queued_requests_by_allocation(allocation)
+      |> State.set_queued_requests(queued_remaining)
+      |> State.set_in_flight_requests(Enum.into(in_flight_remaining, %{}))
       |> schedule_next_request()
-      |> State.set_in_flight_requests(Enum.into(remaining, %{}))
 
     {:reply, :ok, state}
   end
@@ -312,23 +310,10 @@ defmodule PoliteClient.Partition do
   defp purge_all_requests(%{in_flight_requests: in_flight, queued_requests: queued} = state) do
     in_flight
     |> Map.values()
-    |> Enum.each(&cancel_in_flight_request/1)
+    |> Enum.each(&PendingRequest.cancel/1)
 
-    Enum.each(queued, fn %PendingRequest{allocation: %AllocatedRequest{ref: ref, owner: pid}} ->
-      send_cancelation(ref, pid)
-    end)
+    Enum.each(queued, &PendingRequest.cancel/1)
 
     %{state | in_flight_requests: %{}, queued_requests: []}
   end
-
-  defp cancel_in_flight_request(%PendingRequest{task: task} = pending_req) do
-    %AllocatedRequest{ref: ref, owner: pid} = pending_req.allocation
-
-    case Task.shutdown(task) do
-      {:ok, {_duration, result}} -> send(pid, {ref, result})
-      _res -> send_cancelation(ref, pid)
-    end
-  end
-
-  defp send_cancelation(ref, pid), do: send(pid, {ref, :canceled})
 end
