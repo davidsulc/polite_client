@@ -26,8 +26,11 @@ defmodule PoliteClient do
   @doc """
   Performs a request asynchronously.
 
-  The caller will immediately receive a `t:PoliteClient.AllocatedRequest.t/0` struct representing
-  the async request.
+  If the request has been successfully acknowledged, the caller will immediately receive a
+  `t:PoliteClient.AllocatedRequest.t/0` struct representing the async request.
+
+  TODO document non-success results
+  TODO :retries_exhausted probably shouldn't be here: will get sent as response later
 
   ## Message format
 
@@ -37,6 +40,7 @@ defmodule PoliteClient do
   """
   @spec async_request(key :: partition_key(), request :: PoliteClient.Client.request()) ::
           AllocatedRequest.t()
+          | {:error, :max_queued | :suspended | {:retries_exhausted, last_error :: term()}}
   def async_request(key, request) do
     with_partition(key, &Partition.async_request(&1, request))
   end
@@ -45,8 +49,6 @@ defmodule PoliteClient do
   Tells whether the `allocated_request` is still allocated.
 
   Allocations may be lost in the event of partition crashes.
-
-  TODO should caller be able to monitor partition?
   """
   @spec allocated?(allocated_request :: AllocatedRequest.t()) :: boolean()
   def allocated?(%AllocatedRequest{partition: key, ref: ref}) do
@@ -95,6 +97,23 @@ defmodule PoliteClient do
   @spec suspend(key :: partition_key(), opts :: Keyword.t()) :: :ok | {:error, :no_partition}
   def suspend(key, opts \\ []), do: with_partition(key, &Partition.suspend(&1, opts))
 
+  @doc """
+  Returns the pid used by a partition.
+
+  Do not use a partition's pid to interact with it: prefer using its `t:partition_key/0` value instead
+  as it is stable across restarts.
+
+  You should only seek to obtain a partition's pid if you with to work directly with the process itself
+  (monitor, link to it, etc.).
+  """
+  @spec whereis(partition_key()) :: pid() | {:error, :no_partition}
+  def whereis(key) do
+    case PartitionsMgr.find_name(key) do
+      {:ok, via_tuple} -> GenServer.whereis(via_tuple)
+      :not_found -> {:error, :no_partition}
+    end
+  end
+
   defp with_partition(key, fun) do
     case PartitionsMgr.find_name(key) do
       {:ok, via_tuple} ->
@@ -107,6 +126,18 @@ defmodule PoliteClient do
 
   @doc """
   Starts a partition.
+
+  A partition provides back pressure to all requests transiting through it. Partitions should be keyed
+  so the requests only get throttled when necessary: typically partitions would be keyed by host,
+  as making requests to host A usually won't affect host B (assuing they're not sharing infrastructure).
+  Requests transiting through the same partition are NOT executed concurrently, by design.
+
+  Should you want to (e.g.) be able to make requests to 2 different hosts using the same politeness
+  rules (health checker, rate limit, etc.), start 2 separate partitions using the same options (but
+  different partition keys, of course).
+
+  Note that mapping requests to partitions is the caller's responsibility
+  TODO example in quickstart + (refer to quick start).
 
   The `key` identifies the parttion, and must be unique. If a partition is already active with the
   given `key`, `{:error, {:key_conflict, pid}}` will be returned, where `pid` is the pid of the
@@ -121,12 +152,16 @@ defmodule PoliteClient do
   * `client` - the `t:PoliteClient.Client.t()` implementation to use when executing requests
 
   These options MAY be provided:
-  TODO
 
-  * `rate_limiter` - a  valid `t:PoliteClient.RateLimiter.config/0`
-  * `health_checker` - a  valid `t:PoliteClient.HealthChecker.config/0`
-  * `max_retries`
-  * `max_queued`
+  * `rate_limiter` - a  valid `t:PoliteClient.RateLimiter.config/0`. Defaults to a constant delay of
+      1 second between requests.
+  * `health_checker` - a  valid `t:PoliteClient.HealthChecker.config/0`. Defaults to always considering the
+      host as healthy.
+  * `max_retries` - number of times a failed request should be retried. In this context, a failed request
+      is one where a response from the server isn't received (e.g. network error): receiving an error response
+      from the server (e.g. HTTP 5xx Server errors) is considered a successful request.
+  * `max_queued` - the number of requests to keep in a queue. Once the queue is full, calls to `async_request/2`
+      will return `{:error, :max_queued}`. Defaults to 250.
   """
   @spec start_partition(key :: partition_key(), opts :: Keyword.t()) ::
           :ok

@@ -20,7 +20,7 @@ defmodule PoliteClient.Partition.State do
 
   @type status :: :active | {:suspended, :infinity | reference()}
 
-  @max_queued 50
+  @max_queued 250
   @max_retries 3
 
   @doc """
