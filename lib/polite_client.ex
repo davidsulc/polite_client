@@ -29,18 +29,20 @@ defmodule PoliteClient do
   If the request has been successfully acknowledged, the caller will immediately receive a
   `t:PoliteClient.AllocatedRequest.t/0` struct representing the async request.
 
-  TODO document non-success results
-  TODO :retries_exhausted probably shouldn't be here: will get sent as response later
-
   ## Message format
 
-  The reply sent upon completion of the request will be in the format `{ref, result}`, where `ref` is
-  the reference held by the `t:PoliteClient.AllocatedRequest.t/0` struct, and `result` is the return
-  value of the partition's request client (`t:PoliteClient.Client.t/0`).
+  The reply sent in relation to the request will be in the format `{ref, result}`, where `ref` is
+  the reference held by the `t:PoliteClient.AllocatedRequest.t/0` struct, and `result` is one of:
+
+  * the `t:PoliteClient.Client.result/0` return value of the partition's `t:PoliteClient.Client.t/0` request client
+  * `{:error, {:retries_exhausted, last_error}}` where `last_error is the `t:PoliteClient.Client.error returned by the partition's
+  request client (`t:PoliteClient.Client.t/0`) during the last retry attempt (i.e. it will be an instance of the
+  `t:PoliteClient.Client.rasult/0` error case)
+  * `{:error, {:task_failed, reason}}` if the task executing the request (via the client) fails
   """
   @spec async_request(key :: partition_key(), request :: PoliteClient.Client.request()) ::
           AllocatedRequest.t()
-          | {:error, :max_queued | :suspended | {:retries_exhausted, last_error :: term()}}
+          | {:error, :max_queued | :suspended}
   def async_request(key, request) do
     with_partition(key, &Partition.async_request(&1, request))
   end
@@ -157,9 +159,9 @@ defmodule PoliteClient do
       1 second between requests.
   * `health_checker` - a  valid `t:PoliteClient.HealthChecker.config/0`. Defaults to always considering the
       host as healthy.
-  * `max_retries` - number of times a failed request should be retried. In this context, a failed request
-      is one where a response from the server isn't received (e.g. network error): receiving an error response
-      from the server (e.g. HTTP 5xx Server errors) is considered a successful request.
+      * `max_retries` - number of times a failed request should be retried after the initial attempt. In this
+      context, a failed request is one where a response from the server isn't received (e.g. network error):
+      receiving an error response from the server (e.g. HTTP 5xx Server errors) is considered a successful request.
   * `max_queued` - the number of requests to keep in a queue. Once the queue is full, calls to `async_request/2`
       will return `{:error, :max_queued}`. Defaults to 250.
   """
