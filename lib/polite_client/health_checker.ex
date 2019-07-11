@@ -140,16 +140,32 @@ defmodule PoliteClient.HealthChecker do
   Executes the `t:PoliteClient.HealthChecker.checker/0` function, and uses its return value to update
   the internal state.
   """
-  @spec update_state(state :: state(), response_meta :: ResponseMeta.t()) :: state()
-  def update_state(
+  @spec update_state!(state :: state(), response_meta :: ResponseMeta.t()) :: state()
+  def update_state!(
         %{checker: checker, internal_state: internal_state} = state,
         %ResponseMeta{} = response_meta
       ) do
-    # TODO raise on bad return value
-    {status, new_state} = checker.(internal_state, response_meta)
+    case checker.(internal_state, response_meta) do
+      {status, new_state} ->
+        if status_valid?(status) do
+          %{state | internal_state: new_state, status: status}
+        else
+          raise "expected health checker implementation to conform to `PoliteClient.HealthChecker.checker()` " <>
+                  "and return a status conforming to `PoliteClient.HealthChecker.state()`, but got #{
+                    inspect(state)
+                  }"
+        end
 
-    %{state | internal_state: new_state, status: status}
+      bad_result ->
+        raise "expected health checker implementation to conform to `PoliteClient.HealthChecker.checker()`, " <>
+                ", but got #{inspect(bad_result)}"
+    end
   end
+
+  defp status_valid?(:ok), do: true
+  defp status_valid?({:suspend, :infinity}), do: true
+  defp status_valid?({:suspend, duration}) when is_integer(duration) and duration >= 0, do: true
+  defp status_valid?(_), do: false
 
   @doc "Resets the internal state to the `t:PoliteClient.HealthChecker.internal_state/0` initially provided."
   @spec reset_internal_state(state :: state()) :: state()

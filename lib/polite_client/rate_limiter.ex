@@ -204,8 +204,10 @@ defmodule PoliteClient.RateLimiter do
   end
 
   defp optional_delay_valid?(nil), do: true
-  defp optional_delay_valid?(delay) when is_integer(delay) and delay >= 0, do: true
-  defp optional_delay_valid?(_delay), do: false
+  defp optional_delay_valid?(delay), do: delay_valid?(delay)
+
+  defp delay_valid?(delay) when is_integer(delay) and delay >= 0, do: true
+  defp delay_valid?(_delay), do: false
 
   @doc """
   Updates the internal state.
@@ -213,11 +215,28 @@ defmodule PoliteClient.RateLimiter do
   Executes the `t:PoliteClient.RateLimiter.limiter/0` function, and uses its return value to update
   the internal state.
   """
-  def update_state(
+  @spec update_state!(state :: state(), response_meta :: ResponseMeta.t()) :: state()
+  def update_state!(
         %{limiter: limiter, internal_state: internal_state} = state,
         %ResponseMeta{} = response_meta
       ) do
-    # TODO raise on bad return value
+    case limiter.(internal_state, response_meta) do
+      {computed_delay, new_state} ->
+        if delay_valid?(computed_delay) do
+          new_delay = clamp_delay(state, computed_delay)
+          %{state | internal_state: new_state, current_delay: new_delay}
+        else
+          raise "expected rate limiter implementation to conform to `PoliteClient.RateLimiter.limiter()` " <>
+                  "and return a delay conforming to `PoliteClient.RateLimiter.duration()`, but got #{
+                    inspect(computed_delay)
+                  }"
+        end
+
+      bad_result ->
+        raise "expected rate limiter implementation to conform to `PoliteClient.RateLimiter.limiter()`, " <>
+                ", but got #{inspect(bad_result)}"
+    end
+
     {computed_delay, new_state} = limiter.(internal_state, response_meta)
     new_delay = clamp_delay(state, computed_delay)
 

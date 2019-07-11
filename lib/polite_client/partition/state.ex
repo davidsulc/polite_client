@@ -178,7 +178,7 @@ defmodule PoliteClient.Partition.State do
     new_health_checker_state =
       state
       |> get_health_checker_state()
-      |> HealthChecker.update_state(response_meta)
+      |> HealthChecker.update_state!(response_meta)
 
     set_health_checker_state(state, new_health_checker_state)
   end
@@ -200,7 +200,7 @@ defmodule PoliteClient.Partition.State do
     new_rate_limiter_state =
       state
       |> get_rate_limiter_state()
-      |> RateLimiter.update_state(response_meta)
+      |> RateLimiter.update_state!(response_meta)
 
     set_rate_limiter_state(state, new_rate_limiter_state)
   end
