@@ -64,12 +64,15 @@ defmodule PoliteClient.RateLimiter do
   # TODO validations
 
   @doc "Returns a rate limiter configuration that produces a constant 1 second delay between requests."
-  @spec to_config(:default) :: {:ok, config()}
-  def to_config(:default), do: to_config({:constant, @min_delay, []})
+  @spec default_config() :: config()
+  def default_config() do
+    {:ok, config} = config({:constant, @min_delay, []})
+    config
+  end
 
-  def to_config({tag, arg}) when is_atom(tag), do: to_config({tag, arg, []})
+  def config({tag, arg}) when is_atom(tag), do: config({tag, arg, []})
 
-  @spec to_config({:constant | :relative, term(), Keyword.t()}) :: {:ok, config()}
+  @spec config({:constant | :relative, term(), Keyword.t()}) :: {:ok, config()}
 
   @doc """
   Returns a rate limiter configuration for common limiters.
@@ -80,19 +83,19 @@ defmodule PoliteClient.RateLimiter do
   * if the first element in the tuple is `:relative`, the computed delay will be the duration of the
       last request (in microseconds!) multiplied by the second tuple element (the `factor`).
 
-  In all cases, the last tuple element `opts`, is forwarded to `PoliteClient.RateLimiter.to_config/3`.
+  In all cases, the last tuple element `opts`, is forwarded to `PoliteClient.RateLimiter.config/3`.
   """
-  def to_config({:constant, delay, opts}) do
+  def config({:constant, delay, opts}) do
     opts =
       opts
       |> Keyword.put_new(:min_delay, delay)
       |> Keyword.put_new(:max_delay, delay)
 
-    to_config(fn nil, _response_meta -> {delay, nil} end, nil, opts)
+    config(fn nil, _response_meta -> {delay, nil} end, nil, opts)
   end
 
-  def to_config({:relative, factor, opts}) do
-    to_config(
+  def config({:relative, factor, opts}) do
+    config(
       fn nil, %ResponseMeta{duration: duration} -> {round(duration / 1_000 * factor), nil} end,
       nil,
       opts
@@ -112,9 +115,9 @@ defmodule PoliteClient.RateLimiter do
   The rate limiter's internal state will also be reinitialized to the value of `initial_state` when a partition
   is manually resumed.
   """
-  @spec to_config(limiter_function :: limiter(), initial_state :: term(), opts :: Keyword.t()) ::
+  @spec config(limiter_function :: limiter(), initial_state :: term(), opts :: Keyword.t()) ::
           {:ok, config()}
-  def to_config(limiter_function, initial_state, opts \\ [])
+  def config(limiter_function, initial_state, opts \\ [])
       when is_function(limiter_function, 2) do
     # TODO validate delays: must be integers
     # max_delay > min_delay, etc.

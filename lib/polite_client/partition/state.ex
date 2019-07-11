@@ -72,9 +72,9 @@ defmodule PoliteClient.Partition.State do
   def from_keywords(args) when is_list(args) do
     client = Keyword.get(args, :client)
 
-    rate_limiter_config = Keyword.get(args, :rate_limiter, RateLimiter.to_config(:default))
+    rate_limiter_config = Keyword.get(args, :rate_limiter, RateLimiter.default_config())
 
-    health_checker_config = Keyword.get(args, :health_checker, HealthChecker.to_config(:default))
+    health_checker_config = Keyword.get(args, :health_checker, HealthChecker.default_config())
 
     with {:client, {:ok, client}} <- {:client, Client.validate(client)},
          {:rate_limiter, true} <- {:rate_limiter, RateLimiter.config_valid?(rate_limiter_config)},
