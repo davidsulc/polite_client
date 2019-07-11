@@ -37,10 +37,10 @@ defmodule PoliteClient.Client do
 
   This function may return `{:ok, ...}` even if the client isn't valid.
   """
-  @spec validate(term()) :: {:ok, t()} | {:error, :not_provided | :bad_client}
+  @spec validate(term()) :: {:ok, t()} | {:error, :not_provided | :bad_function}
   def validate(client) when is_function(client, 1), do: {:ok, client}
   def validate(nil), do: {:error, :not_provided}
-  def validate(_), do: {:error, :bad_client}
+  def validate(_), do: {:error, :bad_function}
 
   @doc "Raises if the given argument doesn't conform to the `t:PoliteClient.Client.result/0` spec."
   @spec validate_result(result() | term()) :: :ok | no_return()

@@ -61,8 +61,6 @@ defmodule PoliteClient.RateLimiter do
           (internal_state :: internal_state(), response_meta :: ResponseMeta.t() ->
              {next_request_delay :: duration(), new_internal_state :: internal_state()})
 
-  # TODO validations
-
   @doc "Returns a rate limiter configuration that produces a constant 1 second delay between requests."
   @spec default_config() :: config()
   def default_config() do
@@ -154,15 +152,56 @@ defmodule PoliteClient.RateLimiter do
   defp boundary_default(:min_delay), do: @min_delay
   defp boundary_default(:max_delay), do: @max_delay
 
-  @doc "Returns a boolean indicating whether the given argument is a valid internal state."
-  @spec config_valid?(config()) :: boolean()
-  def config_valid?(%{limiter: limiter, initial_state: _} = config) do
-    is_function(limiter, 2) &&
-      config |> Map.get(:min_delay) |> optional_delay_valid?() &&
-      config |> Map.get(:max_delay) |> optional_delay_valid?()
+  @doc "Validtes the configuration."
+  @spec validate_config(config()) ::
+          :ok
+          | {:error,
+             reason ::
+               {:limiter, :bad_function}
+               | {:min_delay | :max_delay, :bad_value}
+               | {:min_delay, :greater_than_max_delay}}
+  def validate_config(config) do
+    with :ok <- validate_limiter(config),
+         :ok <- validate_delay_range(config) do
+      :ok
+    else
+      {:error, _} = error -> error
+    end
   end
 
-  def config_valid?(_config), do: false
+  defp validate_limiter(%{limiter: limiter}) when is_function(limiter, 2), do: :ok
+  defp validate_limiter(_config), do: {:error, {:limiter, :bad_function}}
+
+  defp validate_delay_range(config) do
+    with :ok <- validate_min_delay(config),
+         :ok <- validate_max_delay(config) do
+      case {Map.get(config, :min_delay), Map.get(config, :max_delay)} do
+        {min, max} when is_integer(min) and is_integer(max) and min > max ->
+          {:error, {:min_delay, :greater_than_max_delay}}
+
+        _ ->
+          :ok
+      end
+    else
+      {:error, _} = error -> error
+    end
+  end
+
+  def validate_min_delay(%{min_delay: delay}) do
+    if optional_delay_valid?(delay) do
+      :ok
+    else
+      {:error, {:min_delay, :bad_value}}
+    end
+  end
+
+  def validate_max_delay(%{max_delay: delay}) do
+    if optional_delay_valid?(delay) do
+      :ok
+    else
+      {:error, {:max_delay, :bad_value}}
+    end
+  end
 
   defp optional_delay_valid?(nil), do: true
   defp optional_delay_valid?(delay) when is_integer(delay) and delay >= 0, do: true

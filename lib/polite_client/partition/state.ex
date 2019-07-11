@@ -77,7 +77,8 @@ defmodule PoliteClient.Partition.State do
     health_checker_config = Keyword.get(args, :health_checker, HealthChecker.default_config())
 
     with {:client, {:ok, client}} <- {:client, Client.validate(client)},
-         {:rate_limiter, true} <- {:rate_limiter, RateLimiter.config_valid?(rate_limiter_config)},
+         {:rate_limiter, :ok} <-
+           {:rate_limiter, RateLimiter.validate_config(rate_limiter_config)},
          {:health_checker, true} <-
            {:health_checker, HealthChecker.config_valid?(health_checker_config)} do
       state = %__MODULE__{
@@ -96,13 +97,9 @@ defmodule PoliteClient.Partition.State do
 
       {:ok, state}
     else
-      {:client, {:error, reason}} ->
-        {:error, {:client, reason}}
-
-      {rate_limiter_or_health_checker, _}
-      when rate_limiter_or_health_checker == :rate_limiter or
-             rate_limiter_or_health_checker == :health_checker ->
-        {:error, {rate_limiter_or_health_checker, :invalid_config}}
+      {:client, {:error, reason}} -> {:error, {:client, reason}}
+      {:rate_limiter, {:error, reason}} -> {:error, {:rate_limiter, reason}}
+      {:health_checker, _} -> {:error, {:health_checker, :invalid_config}}
     end
   end
 
