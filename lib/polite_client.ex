@@ -7,22 +7,6 @@ defmodule PoliteClient do
 
   @type partition_key :: Registry.key()
 
-  # TODO
-  # Document: to "convert" into a sync request:
-  # case async_request(method, url, headers, body, opts) do
-  #   {:error, _} = error -> error
-  #   {:queued, ref} when is_reference(ref) -> await_result(ref)
-  #   ref when is_reference(ref) -> await_result(ref)
-  # end
-  # Warn about potential long blocking time on queued requests
-  # => need to have a timeout value
-  #
-  # (note an `after` clause can be added to have a timeout)
-  # defp await_result(ref) when is_reference(ref) do
-  #   receive do
-  #     {^ref, result} -> result
-  #   end
-  # end
   @doc """
   Performs a request asynchronously.
 
@@ -39,6 +23,22 @@ defmodule PoliteClient do
   request client (`t:PoliteClient.Client.t/0`) during the last retry attempt (i.e. it will be an instance of the
   `t:PoliteClient.Client.rasult/0` error case)
   * `{:error, {:task_failed, reason}}` if the task executing the request (via the client) fails
+
+  ## Example
+
+  In the examples below, the `:client` value would typically be a function making a request via an
+  HTTP client (such as Hackney, Tesla, HTTPotion, Mojito, etc.).
+
+  iex> PoliteClient.start_partition(:my_partition, client: fn _ -> {:ok, :foo} end)
+  iex> %PoliteClient.AllocatedRequest{ref: ref} = PoliteClient.async_request(:my_partition, :bar)
+  iex> receive do
+  iex>   {^ref, result} -> result
+  iex> end
+  {:ok, :foo}
+
+  Be mindful of long delays before results are returned (expecially if the queue length is significant). To handle this,
+  you may want to add and `after` clause to the `receive`, or listen for the responses from within a `handle_info` clause
+  in a GenServer.
 
   ## Known limitations
 
