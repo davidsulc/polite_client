@@ -21,9 +21,7 @@ defmodule PoliteClient.Partition do
 
   @doc "Executes a request asynchronously."
   @spec async_request(GenServer.name(), Client.request()) ::
-          AllocatedRequest.t()
-          | {:error, :max_queued | :suspended | {:retries_exhausted, last_error :: term()}}
-  # TODO :retries_exhausted probably shouldn't be here: will get sent as response later
+          AllocatedRequest.t() | {:error, :max_queued | :suspended}
   def async_request(name, request) do
     GenServer.call(name, {:request, request})
   end

@@ -117,8 +117,6 @@ defmodule PoliteClient.RateLimiter do
           {:ok, config()}
   def config(limiter_function, initial_state, opts \\ [])
       when is_function(limiter_function, 2) do
-    # TODO validate delays: must be integers
-    # max_delay > min_delay, etc.
     config = %{
       limiter: limiter_function,
       initial_state: initial_state,
