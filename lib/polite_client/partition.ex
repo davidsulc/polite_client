@@ -14,9 +14,14 @@ defmodule PoliteClient.Partition do
   alias PoliteClient.{AllocatedRequest, Client, ResponseMeta}
   alias PoliteClient.Partition.{PendingRequest, State}
 
+  @spec start_link(Keyword.t()) :: GenServer.on_start() | {:error, {:client, :not_provided}}
   def start_link(args) do
-    # TODO verify args contains :client
-    GenServer.start_link(__MODULE__, args, args)
+    args
+    |> Keyword.get(:client)
+    |> case do
+      {:error, reason} -> {:error, {:client, reason}}
+      _ -> GenServer.start_link(__MODULE__, args, args)
+    end
   end
 
   @doc "Executes a request asynchronously."
