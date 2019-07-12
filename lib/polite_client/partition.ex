@@ -31,6 +31,12 @@ defmodule PoliteClient.Partition do
     GenServer.call(name, {:allocated?, ref})
   end
 
+  @doc "Returns true if the partition has no pending requests."
+  @spec idle?(GenServer.name()) :: boolean()
+  def idle?(name) do
+    GenServer.call(name, :idle?)
+  end
+
   @doc "Cancel the request."
   @spec cancel(GenServer.name(), AllocatedRequest.t()) :: :ok
   def cancel(name, %AllocatedRequest{} = allocation) do
@@ -77,6 +83,12 @@ defmodule PoliteClient.Partition do
   @impl GenServer
   def handle_call({:allocated?, ref}, _from, state) do
     {:reply, State.queued?(state, ref) || State.in_flight?(state, ref), state}
+  end
+
+  @impl GenServer
+  def handle_call(:idle?, _from, state) do
+    %{queued_requests: queued, in_flight_requests: in_flight} = state
+    {:reply, queued == [] && Map.size(in_flight) == 0, state}
   end
 
   @impl GenServer

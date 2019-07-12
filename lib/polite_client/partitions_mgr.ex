@@ -21,6 +21,18 @@ defmodule PoliteClient.PartitionsMgr do
     GenServer.call(@name, {:start_partition, {key, opts}})
   end
 
+  @doc """
+  Stops the partition if it is idle (returns `{:error, :busy}` otherwise. If
+  `force: :true` is given as an option, the partition is stopped even if busy:
+  it will cancel all pending requests.
+  """
+  @spec stop(key :: PoliteClient.partition_key(), opts :: Keyword.t()) ::
+          :ok | {:error, reason}
+        when reason: :no_partition | :busy
+  def stop(key, opts \\ []) do
+    GenServer.call(@name, {:stop_partition, {key, opts}})
+  end
+
   @doc "Find the partition corresponding to `key`."
   @spec find_name(key :: PoliteClient.partition_key()) ::
           {:ok, {:via, module(), term()}} | :not_found
@@ -69,6 +81,26 @@ defmodule PoliteClient.PartitionsMgr do
 
       partition_pid ->
         {:reply, {:error, {:already_started, partition_pid}}, state}
+    end
+  end
+
+  @impl GenServer
+  def handle_call({:stop_partition, {key, opts}}, _from, state) do
+    state
+    |> find_partition(key)
+    |> case do
+      nil ->
+        {:reply, {:error, :no_partition}, state}
+
+      partition_pid ->
+        if Keyword.get(opts, :force) == true || Partition.idle?(partition_pid) do
+          case Supervisor.terminate_child(state.partition_supervisor, partition_pid) do
+            :ok -> {:reply, :ok, state}
+            {:error, :not_found} -> {:reply, {:error, :no_partition}, state}
+          end
+        else
+          {:reply, {:error, :busy}, state}
+        end
     end
   end
 

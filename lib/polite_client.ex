@@ -179,6 +179,11 @@ defmodule PoliteClient do
           | {:error, :max_partitions}
   defdelegate start_partition(key, opts \\ []), to: PartitionsMgr, as: :start
 
+  @spec stop_partition(key :: partition_key(), opts :: Keyword.t()) ::
+          :ok | {:error, reason}
+        when reason: :no_partition | :busy
+  defdelegate stop_partition(key, opts \\ []), to: PartitionsMgr, as: :stop
+
   @doc "Suspends all partitions."
   defdelegate suspend_all(opts), to: PartitionsMgr
 end
