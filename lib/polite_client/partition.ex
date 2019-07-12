@@ -51,6 +51,10 @@ defmodule PoliteClient.Partition do
 
   @impl GenServer
   def init(args) do
+    # Trap exits so the terminate/2 callback will be called if this partition is terminated,
+    # which will allow cleanup and canceling the remaining pending requests.
+    Process.flag(:trap_exit, true)
+
     case State.from_keywords(args) do
       {:ok, state} -> {:ok, state}
       {:error, reason} -> {:stop, reason}
