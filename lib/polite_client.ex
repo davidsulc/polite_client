@@ -1,6 +1,41 @@
 defmodule PoliteClient do
   @moduledoc """
   Documentation for PoliteClient.
+
+  When repeatedly sending requests to a remote host, it is important to do so in so-called
+  polite fashion. This is all the more imporant when these reuquests are performed for
+  a sustained period of time, such as when scraping a website.
+
+  How can we make our requests polite? By not straining the remote host and degrading its service.
+  This typically means spacing out requests so you're not slamming the host with back-to-back
+  requests that would prevent it from serving other clients in a timely manner. In addition,
+  if the host is in a degraded state (responding much too slowly, returning unexpected errors,
+  etc.), no further requests should be made for some time interval, in order to give the remote
+  host the opportunity to recover.
+
+  # Quickstart
+
+  Let's say we're going to scrape www.example.com and www.exmaple.net concurrently. We assume these
+  are on different hosts, and therefore making requests to one won't impact the other: we'll use
+  one partition for each host.
+
+  We'll use `Mojito` as our HTTP client library, but any other library would also work (such as
+  HTTPotion, Hackney, Tesla, etc.). However, the `:client` function must conform to the
+  `t:PoliteClient.Client.t/0` spec and return `{:ok, ...}` and `{:error, ...}` tuples. (`Mojito.get/2`
+  already does this, so no further wrapping is needed.)
+
+  ```
+  :ok = PoliteClient.start_partition("www.example.com", client: &Mojito.get/1)
+  :ok = PoliteClient.start_partition("www.example.net", client: &Mojito.get/1)
+
+  allocated_request_a = PoliteClient.async_request("www.example.com", "https://www.example.com/index.html")
+  allocated_request_b = PoliteClient.async_request("www.example.com", "https://www.example.com/about.html")
+  allocated_request_c = PoliteClient.async_request("www.example.net", "https://www.example.net/index.html")
+  allocated_request_d = PoliteClient.async_request("www.example.net", "https://www.example.net/contact.html")
+  ```
+
+  TODO explain caveat of need to manually select partition
+  then use map to represent request, and use more opts to configure partition
   """
 
   alias PoliteClient.{AllocatedRequest, Partition, PartitionsMgr}
@@ -29,12 +64,14 @@ defmodule PoliteClient do
   In the examples below, the `:client` value would typically be a function making a request via an
   HTTP client (such as Hackney, Tesla, HTTPotion, Mojito, etc.).
 
-  iex> PoliteClient.start_partition(:my_partition, client: fn _ -> {:ok, :foo} end)
-  iex> %PoliteClient.AllocatedRequest{ref: ref} = PoliteClient.async_request(:my_partition, :bar)
-  iex> receive do
-  iex>   {^ref, result} -> result
-  iex> end
+  ```
+  PoliteClient.start_partition(:my_partition, client: fn request -> {:ok, request} end)
+  %PoliteClient.AllocatedRequest{ref: ref} = PoliteClient.async_request(:my_partition, :bar)
+  receive do
+    {^ref, result} -> result
+  end
   {:ok, :foo}
+  ```
 
   Be mindful of long delays before results are returned (expecially if the queue length is significant). To handle this,
   you may want to add and `after` clause to the `receive`, or listen for the responses from within a `handle_info` clause
@@ -59,6 +96,18 @@ defmodule PoliteClient do
   Tells whether the `allocated_request` is still allocated.
 
   Allocations may be lost in the event of partition crashes.
+
+  ## Example
+
+  ```
+  # with a partition with key `:my_partition` running
+  allocated_request = PoliteClient.async_request(:my_partition, "some request")
+  PoliteClient.allocated?(allocated_request)
+  # => true
+  PoliteClient.cancel(allocated_request)
+  PoliteClient.allocated?(allocated_request)
+  # => false
+  ```
   """
   @spec allocated?(allocated_request :: AllocatedRequest.t()) :: boolean()
   def allocated?(%AllocatedRequest{partition: key, ref: ref}) do
@@ -72,7 +121,18 @@ defmodule PoliteClient do
   `{ref, :canceled}` message, where `ref` is the reference matching `allocated_request.ref`.
 
   If the request is unknown (already executed, lost due to crash, etc.) the cancelation
-  will be a no op.
+  will simply return `:ok` with no messages sent.
+
+  ## Example
+
+  ```
+  # with a partition with key `:my_partition` running
+  allocated_request = PoliteClient.async_request(:my_partition, "some request")
+  PoliteClient.cancel(allocated_request)
+  # => :ok
+  flush()
+  # => {#Reference<0.256178682.2266497026.226577>, :canceled}
+  ```
   """
   @spec cancel(allocated_request :: AllocatedRequest.t()) :: :ok
   def cancel(%AllocatedRequest{partition: key} = allocated_request) do
@@ -103,8 +163,12 @@ defmodule PoliteClient do
   * `PoliteClient.resume/1`
 
   All other calls will return `{:error, :suspended}`.
+
+  If the `purge: true` option is given, all pending requests will be canceled (with notifications
+  sent, see `cancel/1`).
   """
-  @spec suspend(key :: partition_key(), opts :: Keyword.t()) :: :ok | {:error, :no_partition}
+  @spec suspend(key :: partition_key(), opts :: Keyword.t()) :: :ok | {:error, reason}
+        when reason: :no_partition | :suspended
   def suspend(key, opts \\ []), do: with_partition(key, &Partition.suspend(&1, opts))
 
   @doc """
@@ -115,6 +179,17 @@ defmodule PoliteClient do
 
   You should only seek to obtain a partition's pid if you with to work directly with the process itself
   (monitor, link to it, etc.).
+
+  ## Examples
+
+  ```
+  # with a partition with key `:my_partition` running
+  PoliteClient.whereis(:my_partition)
+  #=> #PID<0.84.0>
+
+  PoliteClient.whereis(:foo)
+  {:error, :no_partition}
+  ```
   """
   @spec whereis(partition_key()) :: pid() | {:error, :no_partition}
   def whereis(key) do
@@ -150,7 +225,7 @@ defmodule PoliteClient do
   TODO example in quickstart + (refer to quick start).
 
   The `key` identifies the parttion, and must be unique. If a partition is already active with the
-  given `key`, `{:error, {:key_conflict, pid}}` will be returned, where `pid` is the pid of the
+  given `key`, `{:error, {:already_started, pid}}` will be returned, where `pid` is the pid of the
   existing partition identified by `key`.
 
   Partitions are independent from one another, in particular their health checker and rate limiter
@@ -167,23 +242,28 @@ defmodule PoliteClient do
       1 second between requests.
   * `health_checker` - a  valid `t:PoliteClient.HealthChecker.config/0`. Defaults to always considering the
       host as healthy.
-      * `max_retries` - number of times a failed request should be retried after the initial attempt. In this
+  * `max_retries` - number of times a failed request should be retried after the initial attempt. In this
       context, a failed request is one where a response from the server isn't received (e.g. network error):
       receiving an error response from the server (e.g. HTTP 5xx Server errors) is considered a successful request.
   * `max_queued` - the number of requests to keep in a queue. Once the queue is full, calls to `async_request/2`
       will return `{:error, :max_queued}`. Defaults to 250.
   """
-  @spec start_partition(key :: partition_key(), opts :: Keyword.t()) ::
+  @spec start(key :: partition_key(), opts :: Keyword.t()) ::
           :ok
-          | {:error, {:key_conflict, pid()}}
+          | {:error, {:already_started, pid()}}
           | {:error, :max_partitions}
-  defdelegate start_partition(key, opts \\ []), to: PartitionsMgr, as: :start
+  defdelegate start(key, opts \\ []), to: PartitionsMgr, as: :start
 
-  @spec stop_partition(key :: partition_key(), opts :: Keyword.t()) ::
+  @spec stop(key :: partition_key(), opts :: Keyword.t()) ::
           :ok | {:error, reason}
         when reason: :no_partition | :busy
-  defdelegate stop_partition(key, opts \\ []), to: PartitionsMgr, as: :stop
+  defdelegate stop(key, opts \\ []), to: PartitionsMgr, as: :stop
 
-  @doc "Suspends all partitions."
-  defdelegate suspend_all(opts), to: PartitionsMgr
+  @doc """
+  Suspends all partitions.
+
+  Behaves like `suspend/2` without requiring a partition key, as the suspend call will be made to all
+  partitions with the provided options.
+  """
+  defdelegate suspend_all(opts \\ []), to: PartitionsMgr
 end

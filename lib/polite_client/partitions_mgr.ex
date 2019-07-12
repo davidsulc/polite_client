@@ -15,7 +15,7 @@ defmodule PoliteClient.PartitionsMgr do
 
   @spec start(key :: PoliteClient.partition_key(), opts :: Keyword.t()) ::
           :ok
-          | {:error, {:key_conflict, pid()}}
+          | {:error, {:already_started, pid()}}
           | {:error, :max_partitions}
   def start(key, opts \\ []) do
     GenServer.call(@name, {:start_partition, {key, opts}})
@@ -163,7 +163,7 @@ defmodule PoliteClient.PartitionsMgr do
          {:ok, _pid} <- DynamicSupervisor.start_child(PartitionsSupervisor, child_spec) do
       :ok
     else
-      {:started, pid} -> {:error, {:key_conflict, pid}}
+      {:started, pid} -> {:error, {:already_started, pid}}
       {:error, :max_children} -> {:error, :max_partitions}
       {:error, _} = error -> error
     end
