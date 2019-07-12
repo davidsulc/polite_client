@@ -157,10 +157,7 @@ defmodule PoliteClient.PartitionsMgr do
       |> Keyword.put(:task_supervisor, state.task_supervisor)
 
     child_spec =
-      Supervisor.child_spec(Partition,
-        id: "partition_#{inspect(key)}",
-        start: {Partition, :start_link, [partition_opts]}
-      )
+      Supervisor.child_spec(Partition, start: {Partition, :start_link, [partition_opts]})
 
     with {:started, nil} <- {:started, find_partition(state, key)},
          {:ok, _pid} <- DynamicSupervisor.start_child(PartitionsSupervisor, child_spec) do
