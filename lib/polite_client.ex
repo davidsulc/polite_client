@@ -25,8 +25,8 @@ defmodule PoliteClient do
   already does this, so no further wrapping is needed.)
 
   ```
-  :ok = PoliteClient.start_partition("www.example.com", client: &Mojito.get/1)
-  :ok = PoliteClient.start_partition("www.example.net", client: &Mojito.get/1)
+  :ok = PoliteClient.start("www.example.com", client: &Mojito.get/1)
+  :ok = PoliteClient.start("www.example.net", client: &Mojito.get/1)
 
   allocated_request_a = PoliteClient.async_request("www.example.com", "https://www.example.com/index.html")
   allocated_request_b = PoliteClient.async_request("www.example.com", "https://www.example.com/about.html")
@@ -34,8 +34,67 @@ defmodule PoliteClient do
   allocated_request_d = PoliteClient.async_request("www.example.net", "https://www.example.net/contact.html")
   ```
 
-  TODO explain caveat of need to manually select partition
-  then use map to represent request, and use more opts to configure partition
+  ## Mapping requests to partitions
+
+  Since PoliteClient doesn't know of any relationship between the request types you're using and the partition
+  keys, there's too much room for error: you could give the wrong partition key for a given request. Therefore,
+  you should instead map requests to partition keys. And since the data type that you use for requests is
+  completely free, here's an example where we use `URI` instances and map based on host:
+
+  ```
+  :ok = PoliteClient.start("www.example.com", client: fn %URI{} = uri ->
+    uri
+    |> URI.to_string()
+    |> Mojito.get()
+  end)
+
+  mapper = fn %URI{hostname: host} -> host end
+
+  async_request_wrapper = fn %URI{} = uri ->
+    PoliteClient.async_request(mapper.(request), request)
+  end
+
+  request = URI.parse("https://www.example.com/index.html")
+  allocated_request = async_request_wrapper.(request)
+
+  ```
+
+  ## Controlling back pressure
+
+  Let's now start a partition that will ensure the delay before a request is twice the time 
+  it took to make the previous one (but at least half a second), and that will suspend itself
+  for 5 minutes if 3 consecutive requests fail, or will suspend itself permanently (until manually
+  resumed) if a single request took more than 10 seconds:
+
+  ```
+  {:ok, health_checker_config} = PoliteClient.RateLimiter.config({:relative, 2, min_delay: 500})
+
+  {:ok, health_checker_config} =
+    PoliteClient.HealthChecker.config(
+      fn consecutive_errors, %PoliteClient.ResponseMeta{result: result, duration: duration} ->
+        consecutive_errors =
+          case result do
+            {:ok, _} -> consecutive_errors
+            {:errors, _} -> consecutive_errors + 1
+          end
+
+        status =
+          cond do
+            duration > 100_000 -> {:suspend, :infinity}
+            consecutive_errors > 2 -> {:suspend, 5 * 60 * 1_000}
+            true -> :ok
+          end
+
+        {status, consecutive_errors}
+      end,
+      0
+    )
+
+  :ok = PoliteClient.start(:foo,
+    client: &Mojito.get/1,
+    rate_limiter: rate_limiter_config,
+    health_checker: health_checker_config)
+  ```
   """
 
   alias PoliteClient.{AllocatedRequest, Partition, PartitionsMgr}
@@ -70,7 +129,7 @@ defmodule PoliteClient do
   HTTP client (such as Hackney, Tesla, HTTPotion, Mojito, etc.).
 
   ```
-  PoliteClient.start_partition(:my_partition, client: fn request -> {:ok, request} end)
+  PoliteClient.start(:my_partition, client: fn request -> {:ok, request} end)
   %PoliteClient.AllocatedRequest{ref: ref} = PoliteClient.async_request(:my_partition, :bar)
   receive do
     {^ref, result} -> result
@@ -230,8 +289,7 @@ defmodule PoliteClient do
   rules (health checker, rate limit, etc.), start 2 separate partitions using the same options (but
   different partition keys, of course).
 
-  Note that mapping requests to partitions is the caller's responsibility
-  TODO example in quickstart + (refer to quick start).
+  Note that mapping requests to partitions is the caller's responsibility (see top of module documentation).
 
   The `key` identifies the parttion, and must be unique. If a partition is already active with the
   given `key`, `{:error, {:already_started, pid}}` will be returned, where `pid` is the pid of the
