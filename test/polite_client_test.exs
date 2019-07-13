@@ -113,6 +113,24 @@ defmodule PoliteClientTest do
       end
     end
 
+    test "health check can suspend with self-healing", %{test: key, partition_opts: opts} do
+      delay = 1
+
+      {:ok, config} =
+        PoliteClient.HealthChecker.config(fn _, _ -> {{:suspend, delay}, nil} end, nil)
+
+      :ok = PoliteClient.start(key, Keyword.put(opts, :health_checker, config))
+
+      %{ref: ref} = PoliteClient.async_request(key, nil)
+
+      receive do
+        {^ref, _} -> assert PoliteClient.status(key) == :suspended
+      end
+
+      Process.sleep(delay)
+      assert PoliteClient.status(key) == :active
+    end
+
     test "rate limiter gets called on each request", %{test: key, partition_opts: opts} do
       me = self()
 
