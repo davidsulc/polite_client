@@ -8,7 +8,14 @@ defmodule PoliteClientTest do
     unique_name = make_ref()
     :ok = PoliteClient.start(unique_name, client: fn request -> {:ok, request} end)
 
-    on_exit(fn -> :ok = PoliteClient.stop(unique_name) end)
+    # always terminate all partitions after each test
+    on_exit(fn ->
+      PoliteClient.PartitionsSupervisor
+      |> Supervisor.which_children()
+      |> Enum.each(fn {_, pid, _, _} ->
+        DynamicSupervisor.terminate_child(PoliteClient.PartitionsSupervisor, pid)
+      end)
+    end)
 
     %{key: unique_name}
   end
@@ -48,12 +55,12 @@ defmodule PoliteClientTest do
 
     test "health checker gets called on each request" do
       key = make_ref()
-      me = self()
+      pid = self()
 
       {:ok, config} =
         PoliteClient.HealthChecker.config(
           fn _, _ ->
-            send(me, :health_checker_called)
+            send(pid, :health_checker_called)
             {:ok, nil}
           end,
           nil
