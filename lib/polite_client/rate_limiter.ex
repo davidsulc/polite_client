@@ -8,8 +8,8 @@ defmodule PoliteClient.RateLimiter do
 
   alias PoliteClient.ResponseMeta
 
-  @min_delay 1_000
-  @max_delay 120_000
+  @default_min_delay 1_000
+  @default_max_delay 120_000
 
   @typedoc "The rate limiter configuration."
   @type config :: %{
@@ -64,7 +64,7 @@ defmodule PoliteClient.RateLimiter do
   @doc "Returns a rate limiter configuration that produces a constant 1 second delay between requests."
   @spec default_config() :: config()
   def default_config() do
-    {:ok, config} = config({:constant, @min_delay, []})
+    {:ok, config} = config({:constant, @default_min_delay, []})
     config
   end
 
@@ -129,12 +129,14 @@ defmodule PoliteClient.RateLimiter do
 
   @doc false
   @spec to_state(config()) :: state()
-  def to_state(%{limiter: limiter, initial_state: initial_state}) do
+  def to_state(%{limiter: limiter, initial_state: initial_state} = config) do
     %{
       limiter: limiter,
       initial_state: initial_state,
       internal_state: initial_state,
-      current_delay: 0
+      current_delay: 0,
+      min_delay: Map.get(config, :min_delay),
+      max_delay: Map.get(config, :max_delay)
     }
     |> set_delay_boundary(:min_delay)
     |> set_delay_boundary(:max_delay)
@@ -147,8 +149,8 @@ defmodule PoliteClient.RateLimiter do
     end
   end
 
-  defp boundary_default(:min_delay), do: @min_delay
-  defp boundary_default(:max_delay), do: @max_delay
+  defp boundary_default(:min_delay), do: @default_min_delay
+  defp boundary_default(:max_delay), do: @default_max_delay
 
   @doc "Validtes the configuration."
   @spec validate_config(config()) ::
