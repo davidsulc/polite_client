@@ -126,6 +126,34 @@ defmodule PoliteClientTest do
 
       assert_receive :rate_limiter_called, 500, "Rate limiter not called on request execution"
     end
+
+    test "rate limiter can change delay between requests", %{test: key, partition_opts: opts} do
+      {:ok, config} =
+        PoliteClient.RateLimiter.config(fn count, _ -> {count * 11, count + 1} end, 1,
+          min_delay: 0
+        )
+
+      :ok = PoliteClient.start(key, Keyword.put(opts, :rate_limiter, config))
+
+      current_delay = fn k ->
+        k
+        |> PoliteClient.whereis()
+        |> :sys.get_state()
+        |> PoliteClient.Partition.State.get_current_request_delay()
+      end
+
+      %{ref: ref} = PoliteClient.async_request(key, nil)
+
+      receive do
+        {^ref, _} -> assert current_delay.(key) == 11
+      end
+
+      %{ref: ref} = PoliteClient.async_request(key, nil)
+
+      receive do
+        {^ref, _} -> assert current_delay.(key) == 22
+      end
+    end
   end
 
   test "start/2", %{key: key, partition_opts: opts} do

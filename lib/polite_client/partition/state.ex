@@ -223,6 +223,6 @@ defmodule PoliteClient.Partition.State do
   def get_current_request_delay(%__MODULE__{} = state) do
     state
     |> Map.get(:rate_limiter)
-    |> Map.get(:current_delay)
+    |> RateLimiter.get_current_delay()
   end
 end
