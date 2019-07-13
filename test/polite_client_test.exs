@@ -77,6 +77,40 @@ defmodule PoliteClientTest do
       assert_receive :health_checker_called, 500, "Health checker not called on request execution"
     end
 
+    test "health check can suspend partition" do
+      key = make_ref()
+
+      {:ok, health_checker_config} =
+        PoliteClient.HealthChecker.config(
+          fn count, _ ->
+            status = if count > 0, do: {:suspend, :infinity}, else: :ok
+            {status, count + 1}
+          end,
+          0
+        )
+
+      {:ok, rate_limiter_config} = PoliteClient.RateLimiter.config({:constant, 0})
+
+      :ok =
+        PoliteClient.start(key,
+          client: fn request -> {:ok, request} end,
+          health_checker: health_checker_config,
+          rate_limiter: rate_limiter_config
+        )
+
+      %{ref: ref} = PoliteClient.async_request(key, nil)
+
+      receive do
+        {^ref, _} -> assert PoliteClient.status(key) == :active
+      end
+
+      %{ref: ref} = PoliteClient.async_request(key, nil)
+
+      receive do
+        {^ref, _} -> assert PoliteClient.status(key) == :suspended
+      end
+    end
+
     test "rate limiter gets called on each request" do
       key = make_ref()
       me = self()

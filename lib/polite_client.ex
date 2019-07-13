@@ -243,7 +243,8 @@ defmodule PoliteClient do
   These options MAY be provided:
 
   * `rate_limiter` - a  valid `t:PoliteClient.RateLimiter.config/0`. Defaults to a constant delay of
-      1 second between requests.
+      1 second between requests. To force immediate requests, call `PoliteClient.RateLimiter.config/1`
+      with `{:constant, 0}`.
   * `health_checker` - a  valid `t:PoliteClient.HealthChecker.config/0`. Defaults to always considering the
       host as healthy.
   * `max_retries` - number of times a failed request should be retried after the initial attempt. In this
