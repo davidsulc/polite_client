@@ -143,7 +143,7 @@ defmodule PoliteClient.RateLimiter do
   end
 
   @doc false
-  @spec get_current_delay(config()) :: duration()
+  @spec get_current_delay(state()) :: duration()
   def get_current_delay(%{current_delay: delay}), do: delay
 
   defp set_delay_boundary(state, boundary_name) when boundary_name in [:min_delay, :max_delay] do

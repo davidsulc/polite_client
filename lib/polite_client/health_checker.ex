@@ -88,7 +88,7 @@ defmodule PoliteClient.HealthChecker do
   @type suspension_duration() :: non_neg_integer() | :infinity
 
   @doc "Returns a health checker configuration that always considers the partition to be in a healthy state."
-  @spec default_config() :: {:ok, config()}
+  @spec default_config() :: config()
   def default_config() do
     {:ok, config} = config(fn nil, _ -> {:ok, nil} end, nil)
     config
