@@ -24,7 +24,15 @@ defmodule PoliteClient.MixProject do
   def application do
     [
       extra_applications: [:logger],
-      mod: {PoliteClient.Application, []}
+      mod: {PoliteClient.Application, []},
+      registered: [
+        PoliteClient.Supervisor,
+        PoliteClient.AppSup,
+        PoliteClient.PartitionsMgr,
+        PoliteClient.PartitionsSupervisor,
+        PoliteClient.RequestTaskSupervisor,
+        Registry.PoliteClient
+      ]
     ]
   end
 
