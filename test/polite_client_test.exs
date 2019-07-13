@@ -5,8 +5,21 @@ defmodule PoliteClientTest do
   alias PoliteClient.AllocatedRequest
 
   setup do
+    client = fn request -> {:ok, request} end
+
+    {:ok, health_checker_config} =
+      PoliteClient.HealthChecker.config(fn _, _ -> {:ok, nil} end, nil)
+
+    {:ok, rate_limiter_config} = PoliteClient.RateLimiter.config({:constant, 0})
+
+    partition_opts = [
+      client: client,
+      health_checker: health_checker_config,
+      rate_limiter: rate_limiter_config
+    ]
+
     unique_name = make_ref()
-    :ok = PoliteClient.start(unique_name, client: fn request -> {:ok, request} end)
+    :ok = PoliteClient.start(unique_name, partition_opts)
 
     # always terminate all partitions after each test
     on_exit(fn ->
@@ -17,7 +30,7 @@ defmodule PoliteClientTest do
       end)
     end)
 
-    %{key: unique_name}
+    %{key: unique_name, partition_opts: partition_opts}
   end
 
   defp slow_client(sleep \\ 5_000) do
@@ -53,7 +66,7 @@ defmodule PoliteClientTest do
       assert_receive {^ref, {:ok, "foo"}}, 500, "Request result not received"
     end
 
-    test "health checker gets called on each request" do
+    test "health checker gets called on each request", %{partition_opts: opts} do
       key = make_ref()
       pid = self()
 
@@ -66,21 +79,17 @@ defmodule PoliteClientTest do
           nil
         )
 
-      :ok =
-        PoliteClient.start(key,
-          client: fn request -> {:ok, request} end,
-          health_checker: config
-        )
+      :ok = PoliteClient.start(key, Keyword.put(opts, :health_checker, config))
 
       PoliteClient.async_request(key, nil)
 
       assert_receive :health_checker_called, 500, "Health checker not called on request execution"
     end
 
-    test "health check can suspend partition" do
+    test "health check can suspend partition", %{partition_opts: opts} do
       key = make_ref()
 
-      {:ok, health_checker_config} =
+      {:ok, config} =
         PoliteClient.HealthChecker.config(
           fn count, _ ->
             status = if count > 0, do: {:suspend, :infinity}, else: :ok
@@ -89,14 +98,7 @@ defmodule PoliteClientTest do
           0
         )
 
-      {:ok, rate_limiter_config} = PoliteClient.RateLimiter.config({:constant, 0})
-
-      :ok =
-        PoliteClient.start(key,
-          client: fn request -> {:ok, request} end,
-          health_checker: health_checker_config,
-          rate_limiter: rate_limiter_config
-        )
+      :ok = PoliteClient.start(key, Keyword.put(opts, :health_checker, config))
 
       %{ref: ref} = PoliteClient.async_request(key, nil)
 
@@ -111,7 +113,7 @@ defmodule PoliteClientTest do
       end
     end
 
-    test "rate limiter gets called on each request" do
+    test "rate limiter gets called on each request", %{partition_opts: opts} do
       key = make_ref()
       me = self()
 
@@ -124,11 +126,7 @@ defmodule PoliteClientTest do
           nil
         )
 
-      :ok =
-        PoliteClient.start(key,
-          client: fn request -> {:ok, request} end,
-          rate_limiter: config
-        )
+      :ok = PoliteClient.start(key, Keyword.put(opts, :rate_limiter, config))
 
       PoliteClient.async_request(key, nil)
 
@@ -136,10 +134,9 @@ defmodule PoliteClientTest do
     end
   end
 
-  test "start/2", %{key: key} do
+  test "start/2", %{key: key, partition_opts: opts} do
     # TODO test for {:error, :max_partitions}
-    assert {:error, {:already_started, pid}} =
-             PoliteClient.start(key, client: fn _ -> {:ok, :foo} end)
+    assert {:error, {:already_started, pid}} = PoliteClient.start(key, opts)
 
     assert is_pid(pid)
   end
@@ -182,9 +179,9 @@ defmodule PoliteClientTest do
     assert_received {^ref, :canceled}, "No cancelation message received"
   end
 
-  test "suspend_all/1", %{key: key} do
+  test "suspend_all/1", %{key: key, partition_opts: opts} do
     key2 = make_ref()
-    PoliteClient.start(key2, client: fn _ -> {:ok, :foo} end)
+    PoliteClient.start(key2, opts)
 
     PoliteClient.suspend_all()
 
