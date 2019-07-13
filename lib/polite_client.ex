@@ -291,10 +291,6 @@ defmodule PoliteClient do
 
   Note that mapping requests to partitions is the caller's responsibility (see top of module documentation).
 
-  The `key` identifies the parttion, and must be unique. If a partition is already active with the
-  given `key`, `{:error, {:already_started, pid}}` will be returned, where `pid` is the pid of the
-  existing partition identified by `key`.
-
   Partitions are independent from one another, in particular their health checker and rate limiter
   states are not shared. Therefore, a partition can have a more restrictive rate limiter, or a more
   forgiving health checker implementation.
@@ -315,6 +311,13 @@ defmodule PoliteClient do
       receiving an error response from the server (e.g. HTTP 5xx Server errors) is considered a successful request.
   * `max_queued` - the number of requests to keep in a queue. Once the queue is full, calls to `async_request/2`
       will return `{:error, :max_queued}`. Defaults to 250.
+
+  The `key` identifies the parttion, and must be unique. If a partition is already active with the
+  given `key`, `{:error, {:already_started, pid}}` will be returned, where `pid` is the pid of the
+  existing partition identified by `key`.
+
+  If the applications was started with a `:max_partitions` value and there are already that many
+  partitions, `{:error, :max_partitions}` will be returned.
   """
   @spec start(key :: partition_key(), opts :: Keyword.t()) ::
           :ok
