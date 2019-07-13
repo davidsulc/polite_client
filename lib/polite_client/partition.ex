@@ -19,10 +19,10 @@ defmodule PoliteClient.Partition do
   end
 
   @doc "Executes a request asynchronously."
-  @spec async_request(GenServer.name(), Client.request()) ::
+  @spec async_request(GenServer.name(), Client.request(), Keyword.t()) ::
           AllocatedRequest.t() | {:error, :max_queued | :suspended}
-  def async_request(name, request) do
-    GenServer.call(name, {:request, request})
+  def async_request(name, request, opts \\ []) do
+    GenServer.call(name, {:request, request, opts})
   end
 
   @doc "Returns true if the request is still allocated."
@@ -141,7 +141,7 @@ defmodule PoliteClient.Partition do
 
   @impl GenServer
   def handle_call(
-        {:request, _request},
+        {:request, _request, _opts},
         _from,
         %{queued_requests: queued, max_queued: max} = state
       )
@@ -150,9 +150,10 @@ defmodule PoliteClient.Partition do
   end
 
   @impl GenServer
-  def handle_call({:request, request}, {pid, _}, state) do
+  def handle_call({:request, request, opts}, {pid, _}, state) do
     pending_request = %PendingRequest{
       request: request,
+      client: Keyword.get(opts, :client, state.client),
       allocation: %AllocatedRequest{
         ref: make_ref(),
         owner: pid,
@@ -304,7 +305,7 @@ defmodule PoliteClient.Partition do
   defp process_next_request(%{status: {:suspended, _}} = state), do: state
 
   defp process_next_request(%{queued_requests: q} = state) do
-    [%PendingRequest{allocation: allocation} = next | t] = q
+    [%PendingRequest{client: client, allocation: allocation} = next | t] = q
     %AllocatedRequest{owner: pid} = allocation
 
     state =
@@ -312,7 +313,7 @@ defmodule PoliteClient.Partition do
         %Task{ref: task_ref} =
           task =
           Task.Supervisor.async_nolink(state.task_supervisor, fn ->
-            {duration, result} = :timer.tc(fn -> state.client.(next.request) end)
+            {duration, result} = :timer.tc(fn -> client.(next.request) end)
 
             %ResponseMeta{
               result: result,

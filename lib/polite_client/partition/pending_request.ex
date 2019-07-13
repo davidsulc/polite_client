@@ -9,12 +9,13 @@ defmodule PoliteClient.Partition.PendingRequest do
   @type t :: %__MODULE__{
           allocation: AllocatedRequest.t(),
           request: Client.request(),
+          client: Client.t(),
           task: nil | Task.t(),
           retries: non_neg_integer()
         }
 
-  @enforce_keys [:allocation, :request]
-  defstruct allocation: nil, request: nil, task: nil, retries: 0
+  @enforce_keys [:allocation, :request, :client]
+  defstruct allocation: nil, request: nil, client: nil, task: nil, retries: 0
 
   @spec get_allocation(t()) :: AllocatedRequest.t()
   def get_allocation(%__MODULE__{allocation: allocation}), do: allocation

@@ -64,6 +64,11 @@ defmodule PoliteClientTest do
       assert_receive {^ref, {:ok, "foo"}}, 500, "Request result not received"
     end
 
+    test "can provide client", %{key: key, test: test} do
+      %{ref: ref} = PoliteClient.async_request(key, "foo", client: fn _ -> {:ok, test} end)
+      assert_receive {^ref, {:ok, ^test}}, 500, "Request result not received"
+    end
+
     test "health checker gets called on each request", %{test: key, partition_opts: opts} do
       pid = self()
 

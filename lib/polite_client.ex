@@ -59,6 +59,11 @@ defmodule PoliteClient do
   `t:PoliteClient.Client.rasult/0` error case)
   * `{:error, {:task_failed, reason}}` if the task executing the request (via the client) fails
 
+  Options:
+
+  * `:client` - the `t:PoliteClient.Client.t/0` to use for the request. If none is provided, the partition's
+    client will be used.
+
   ## Example
 
   In the examples below, the `:client` value would typically be a function making a request via an
@@ -88,8 +93,8 @@ defmodule PoliteClient do
   @spec async_request(key :: partition_key(), request :: PoliteClient.Client.request()) ::
           AllocatedRequest.t()
           | {:error, :max_queued | :suspended}
-  def async_request(key, request) do
-    with_partition(key, &Partition.async_request(&1, request))
+  def async_request(key, request, opts \\ []) do
+    with_partition(key, &Partition.async_request(&1, request, opts))
   end
 
   @doc """
