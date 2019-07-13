@@ -40,9 +40,7 @@ defmodule PoliteClientTest do
     end
   end
 
-  test "allocated?/2 and cancel/2" do
-    key = make_ref()
-
+  test "allocated?/2 and cancel/2", %{test: key} do
     PoliteClient.start(key,
       client: fn _ ->
         Process.sleep(10_000)
@@ -66,8 +64,7 @@ defmodule PoliteClientTest do
       assert_receive {^ref, {:ok, "foo"}}, 500, "Request result not received"
     end
 
-    test "health checker gets called on each request", %{partition_opts: opts} do
-      key = make_ref()
+    test "health checker gets called on each request", %{test: key, partition_opts: opts} do
       pid = self()
 
       {:ok, config} =
@@ -86,9 +83,7 @@ defmodule PoliteClientTest do
       assert_receive :health_checker_called, 500, "Health checker not called on request execution"
     end
 
-    test "health check can suspend partition", %{partition_opts: opts} do
-      key = make_ref()
-
+    test "health check can suspend partition", %{test: key, partition_opts: opts} do
       {:ok, config} =
         PoliteClient.HealthChecker.config(
           fn count, _ ->
@@ -113,8 +108,7 @@ defmodule PoliteClientTest do
       end
     end
 
-    test "rate limiter gets called on each request", %{partition_opts: opts} do
-      key = make_ref()
+    test "rate limiter gets called on each request", %{test: key, partition_opts: opts} do
       me = self()
 
       {:ok, config} =
@@ -141,19 +135,17 @@ defmodule PoliteClientTest do
     assert is_pid(pid)
   end
 
-  test "stop/2" do
+  test "stop/2", %{test: key} do
     start = fn name -> PoliteClient.start(name, client: slow_client()) end
 
-    name = make_ref()
+    assert :ok = start.(key)
+    assert :ok = PoliteClient.stop(key)
 
-    assert :ok = start.(name)
-    assert :ok = PoliteClient.stop(name)
+    assert :ok = start.(key)
+    %{} = PoliteClient.async_request(key, "foo")
 
-    assert :ok = start.(name)
-    %{} = PoliteClient.async_request(name, "foo")
-
-    assert {:error, :busy} = PoliteClient.stop(name)
-    assert :ok = PoliteClient.stop(name, force: true)
+    assert {:error, :busy} = PoliteClient.stop(key)
+    assert :ok = PoliteClient.stop(key, force: true)
     assert_received {_ref, :canceled}, "No cancelation message received"
 
     assert {:error, :no_partition} = PoliteClient.stop(:none)
@@ -171,16 +163,14 @@ defmodule PoliteClientTest do
     assert :ok = PoliteClient.resume(key)
   end
 
-  test "suspend/2 with purging" do
-    key = make_ref()
+  test "suspend/2 with purging", %{test: key} do
     PoliteClient.start(key, client: slow_client())
     %{ref: ref} = PoliteClient.async_request(key, "some request")
     PoliteClient.suspend(key, purge: true)
     assert_received {^ref, :canceled}, "No cancelation message received"
   end
 
-  test "suspend_all/1", %{key: key, partition_opts: opts} do
-    key2 = make_ref()
+  test "suspend_all/1", %{key: key, test: key2, partition_opts: opts} do
     PoliteClient.start(key2, opts)
 
     PoliteClient.suspend_all()
