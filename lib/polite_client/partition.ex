@@ -55,6 +55,12 @@ defmodule PoliteClient.Partition do
     GenServer.call(name, :resume)
   end
 
+  @doc "Returns the status"
+  @spec status(GenServer.name()) :: State.status()
+  def status(name) do
+    GenServer.call(name, :status)
+  end
+
   @impl GenServer
   def init(args) do
     # Trap exits so the terminate/2 callback will be called if this partition is terminated,
@@ -65,6 +71,11 @@ defmodule PoliteClient.Partition do
       {:ok, state} -> {:ok, state}
       {:error, reason} -> {:stop, reason}
     end
+  end
+
+  @impl GenServer
+  def handle_call(:status, _from, state) do
+    {:reply, State.get_status(state), state}
   end
 
   @impl GenServer

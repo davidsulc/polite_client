@@ -103,6 +103,10 @@ defmodule PoliteClient.Partition.State do
     end
   end
 
+  @spec get_status(state :: t()) :: status()
+  def get_status(%__MODULE__{status: :active}), do: :active
+  def get_status(%__MODULE__{status: {:suspended, _}}), do: :suspended
+
   @spec set_status(state :: t(), status :: status()) :: t()
   def set_status(%__MODULE__{} = state, status), do: %{state | status: status}
 

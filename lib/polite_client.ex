@@ -171,6 +171,10 @@ defmodule PoliteClient do
         when reason: :no_partition | :suspended
   def suspend(key, opts \\ []), do: with_partition(key, &Partition.suspend(&1, opts))
 
+  @doc "Returns the partition's current status."
+  @spec status(key :: partition_key()) :: :active | :suspended
+  def status(key), do: with_partition(key, &Partition.status/1)
+
   @doc """
   Returns the pid used by a partition.
 
