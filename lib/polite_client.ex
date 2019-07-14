@@ -1,6 +1,9 @@
 defmodule PoliteClient do
   @moduledoc """
-  Documentation for PoliteClient.
+  PoliteClient implements client-side back-pressure by applying the
+  [circuit breaker](https://en.wikipedia.org/wiki/Circuit_breaker_design_pattern) and
+  [rate limiter](https://en.wikipedia.org/wiki/Rate_limiting) patterns to requests (grouped
+  by partition).
 
   When repeatedly sending requests to a remote host, it is important to do so in so-called
   polite fashion. This is all the more imporant when these reuquests are performed for
@@ -95,6 +98,11 @@ defmodule PoliteClient do
     rate_limiter: rate_limiter_config,
     health_checker: health_checker_config)
   ```
+
+  Refer to the documentation for `PoliteClient.RateLimiter.config/1` for common configurations.
+
+  And naturally, the health check and rate limit functionality can be delegated to third-party libraries
+  (such as `ExRated` and `fuse`).
   """
 
   alias PoliteClient.{AllocatedRequest, Partition, PartitionsMgr}
@@ -115,7 +123,7 @@ defmodule PoliteClient do
   * the `t:PoliteClient.Client.result/0` return value of the partition's `t:PoliteClient.Client.t/0` request client
   * `{:error, {:retries_exhausted, last_error}}` where `last_error is the `t:PoliteClient.Client.error returned by the partition's
   request client (`t:PoliteClient.Client.t/0`) during the last retry attempt (i.e. it will be an instance of the
-  `t:PoliteClient.Client.rasult/0` error case)
+  `t:PoliteClient.Client.result/0` error case)
   * `{:error, {:task_failed, reason}}` if the task executing the request (via the client) fails
 
   Options:
