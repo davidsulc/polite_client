@@ -103,6 +103,17 @@ defmodule PoliteClient do
 
   And naturally, the health check and rate limit functionality can be delegated to third-party libraries
   (such as `ExRated` and `fuse`).
+
+  # Configuration
+
+  The number of partitions that can be created can be limited:
+
+  ```
+  config :polite_client, :max_partitions, 5
+  ```
+
+  With the above configuration, calling `PoliteClient.start/2` to start a 6th partition will return
+  `{:error, :max_partitions}`.
   """
 
   alias PoliteClient.{AllocatedRequest, Partition, PartitionsMgr}
