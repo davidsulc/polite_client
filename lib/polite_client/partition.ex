@@ -68,8 +68,12 @@ defmodule PoliteClient.Partition do
     Process.flag(:trap_exit, true)
 
     case State.from_keywords(args) do
-      {:ok, state} -> {:ok, state}
-      {:error, reason} -> {:stop, reason}
+      {:ok, state} ->
+        Logger.metadata(partition: state.key)
+        {:ok, state}
+
+      {:error, reason} ->
+        {:stop, reason}
     end
   end
 
@@ -103,7 +107,9 @@ defmodule PoliteClient.Partition do
   end
 
   @impl GenServer
-  def handle_call({:cancel, %AllocatedRequest{} = allocation}, _from, state) do
+  def handle_call({:cancel, %AllocatedRequest{ref: ref} = allocation}, _from, state) do
+    Logger.info("Canceling request #{inspect(ref)}")
+
     {in_flight_to_cancel, in_flight_remaining} =
       state.in_flight_requests
       |> Map.values()
@@ -130,6 +136,8 @@ defmodule PoliteClient.Partition do
 
   @impl GenServer
   def handle_call({:suspend, opts}, _from, state) do
+    Logger.info("Suspending")
+
     state =
       case Keyword.get(opts, :purge) do
         true -> purge_all_requests(state)
@@ -146,6 +154,7 @@ defmodule PoliteClient.Partition do
         %{queued_requests: queued, max_queued: max} = state
       )
       when length(queued) >= max do
+    Logger.warn("Received request: over capacity (max_queued: #{max}")
     {:reply, {:error, :max_queued}, state}
   end
 
@@ -155,11 +164,13 @@ defmodule PoliteClient.Partition do
       request: request,
       client: Keyword.get(opts, :client, state.client),
       allocation: %AllocatedRequest{
-        ref: make_ref(),
+        ref: ref = make_ref(),
         owner: pid,
         partition: state.key
       }
     }
+
+    Logger.debug("Received request: allocated with ref #{inspect(ref)}")
 
     state =
       state
@@ -170,10 +181,16 @@ defmodule PoliteClient.Partition do
   end
 
   @impl GenServer
-  def handle_info(:auto_resume, %{status: {:suspended, :infinity}} = state), do: {:noreply, state}
+  def handle_info(:auto_resume, %{status: {:suspended, :infinity}} = state) do
+    Logger.info("Auto-resume attempt ignored: in suspended state with :infinity")
+    {:noreply, state}
+  end
 
   @impl GenServer
-  def handle_info(:auto_resume, state), do: {:noreply, do_resume(state)}
+  def handle_info(:auto_resume, state) do
+    Logger.info("Auto-resuming")
+    {:noreply, do_resume(state)}
+  end
 
   @impl GenServer
   def handle_info({task_ref, %ResponseMeta{result: result} = response_meta}, state)
@@ -231,9 +248,11 @@ defmodule PoliteClient.Partition do
 
     case State.check_health(state) do
       {:suspend, :infinity} ->
+        Logger.info("Suspending for :infinity")
         State.suspend(state, :infinity)
 
       {:suspend, duration} ->
+        Logger.info("Suspending for #{duration} milliseconds")
         State.suspend(state, Process.send_after(self(), :auto_resume, duration))
 
       :ok ->
@@ -268,6 +287,8 @@ defmodule PoliteClient.Partition do
   defp handle_request_result(state, %ResponseMeta{result: result}, task_ref) do
     pending_request = State.get_in_flight_request(state, task_ref)
     %AllocatedRequest{ref: ref, owner: pid} = PendingRequest.get_allocation(pending_request)
+
+    Logger.debug("Forwarding request result #{inspect(ref)} to owner #{inspect(pid)}")
 
     case result do
       {:ok, _} ->
@@ -306,7 +327,7 @@ defmodule PoliteClient.Partition do
 
   defp process_next_request(%{queued_requests: q} = state) do
     [%PendingRequest{client: client, allocation: allocation} = next | t] = q
-    %AllocatedRequest{owner: pid} = allocation
+    %AllocatedRequest{owner: pid, ref: ref} = allocation
 
     state =
       if Process.alive?(pid) do
@@ -321,8 +342,11 @@ defmodule PoliteClient.Partition do
             }
           end)
 
+        Logger.debug("Processing request #{inspect(ref)} -> task ref #{inspect(task_ref)}")
+
         State.add_in_flight_request(state, task_ref, %{next | task: task})
       else
+        Logger.debug("Discarding request #{inspect(ref)}: owner dead")
         process_next_request(%{state | queued_requests: t})
       end
 
@@ -332,6 +356,8 @@ defmodule PoliteClient.Partition do
   end
 
   defp purge_all_requests(%{in_flight_requests: in_flight, queued_requests: queued} = state) do
+    Logger.info("Purging all requests")
+
     in_flight
     |> Map.values()
     |> Enum.each(&PendingRequest.cancel/1)

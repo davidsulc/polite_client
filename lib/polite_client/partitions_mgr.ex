@@ -94,6 +94,8 @@ defmodule PoliteClient.PartitionsMgr do
 
       partition_pid ->
         if Keyword.get(opts, :force) == true || Partition.idle?(partition_pid) do
+          Logger.info("Stopping partition #{inspect(key)}", partition: key)
+
           case Supervisor.terminate_child(state.partition_supervisor, partition_pid) do
             :ok -> {:reply, :ok, state}
             {:error, :not_found} -> {:reply, {:error, :no_partition}, state}
@@ -148,6 +150,7 @@ defmodule PoliteClient.PartitionsMgr do
   end
 
   defp start_partition(state, key, opts) do
+    Logger.info("Starting partition #{inspect(key)}", partition: key)
     via_tuple = via_tuple(state, key)
 
     partition_opts =
