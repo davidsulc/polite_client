@@ -248,11 +248,11 @@ defmodule PoliteClient.Partition do
 
     case State.check_health(state) do
       {:suspend, :infinity} ->
-        Logger.info("Suspending for :infinity")
+        Logger.warn("Health check failed, suspending for :infinity")
         State.suspend(state, :infinity)
 
       {:suspend, duration} ->
-        Logger.info("Suspending for #{duration} milliseconds")
+        Logger.warn("Health check failed, suspending for #{duration} milliseconds")
         State.suspend(state, Process.send_after(self(), :auto_resume, duration))
 
       :ok ->
