@@ -132,9 +132,9 @@ defmodule PoliteClient do
   the reference held by the `t:PoliteClient.AllocatedRequest.t/0` struct, and `result` is one of:
 
   * the `t:PoliteClient.Client.result/0` return value of the partition's `t:PoliteClient.Client.t/0` request client
-  * `{:error, {:retries_exhausted, last_error}}` where `last_error is the `t:PoliteClient.Client.error returned by the partition's
-  request client (`t:PoliteClient.Client.t/0`) during the last retry attempt (i.e. it will be an instance of the
-  `t:PoliteClient.Client.result/0` error case)
+  * `{:error, {:retries_exhausted, last_error}}` where `last_error` is the value returned by the partition's
+    request client (`t:PoliteClient.Client.t/0`) during the last retry attempt
+    (i.e. it will be an instance of the `t:PoliteClient.Client.result/0` error case)
   * `{:error, {:task_failed, reason}}` if the task executing the request (via the client) fails
 
   Options:
