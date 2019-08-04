@@ -136,6 +136,9 @@ defmodule PoliteClient do
     request client (`t:PoliteClient.Client.t/0`) during the last retry attempt
     (i.e. it will be an instance of the `t:PoliteClient.Client.result/0` error case)
   * `{:error, {:task_failed, reason}}` if the task executing the request (via the client) fails
+  * `:canceled` if the request was canceled either directly through `PoliteClient.cancel/1`, or by halting
+  the partition (through `PoliteClient.suspend/2`, `PoliteClient.suspend_all/1`, or directly stopping the partition
+  GenServer)
 
   Options:
 
