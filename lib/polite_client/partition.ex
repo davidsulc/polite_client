@@ -154,7 +154,7 @@ defmodule PoliteClient.Partition do
         %{queued_requests: queued, max_queued: max} = state
       )
       when length(queued) >= max do
-    Logger.warn("Received request: over capacity (max_queued: #{max}")
+    Logger.warn("Received request: over capacity (max_queued: #{max})")
     {:reply, {:error, :max_queued}, state}
   end
 
