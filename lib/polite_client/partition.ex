@@ -321,31 +321,26 @@ defmodule PoliteClient.Partition do
   defp process_next_request(%{status: {:suspended, _}} = state), do: state
 
   defp process_next_request(%{queued_requests: q} = state) do
-    [%PendingRequest{client: client, allocation: allocation} = next | t] = q
-    %AllocatedRequest{owner: pid, ref: ref} = allocation
+    [next | t] = Enum.drop_while(q, &(!PendingRequest.owner_alive?(&1)))
 
-    state =
-      if Process.alive?(pid) do
-        %Task{ref: task_ref} =
-          task =
-          Task.Supervisor.async_nolink(state.task_supervisor, fn ->
-            {duration, result} = :timer.tc(fn -> client.(next.request) end)
+    %Task{ref: task_ref} =
+      task =
+      Task.Supervisor.async_nolink(state.task_supervisor, fn ->
+        {duration, result} = :timer.tc(fn -> next.client.(next.request) end)
 
-            %ResponseMeta{
-              result: result,
-              duration: duration
-            }
-          end)
+        %ResponseMeta{
+          result: result,
+          duration: duration
+        }
+      end)
 
-        Logger.debug("Processing request #{inspect(ref)} -> task ref #{inspect(task_ref)}")
-
-        State.add_in_flight_request(state, task_ref, %{next | task: task})
-      else
-        Logger.debug("Discarding request #{inspect(ref)}: owner dead")
-        process_next_request(%{state | queued_requests: t})
-      end
+    Logger.debug(fn ->
+      %AllocatedRequest{ref: ref} = next.allocation
+      "Processing request #{inspect(ref)} -> task ref #{inspect(task_ref)}"
+    end)
 
     state
+    |> State.add_in_flight_request(task_ref, %{next | task: task})
     |> State.set_unavailable()
     |> State.set_queued_requests(t)
   end
