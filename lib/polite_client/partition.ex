@@ -205,9 +205,8 @@ defmodule PoliteClient.Partition do
       |> handle_request_result(response_meta, task_ref)
       |> State.delete_in_flight_request(task_ref)
       |> State.update_rate_limiter_state(response_meta)
-      |> schedule_next_request()
 
-    {:noreply, state}
+    {:noreply, schedule_next_request(state)}
   end
 
   @impl GenServer
