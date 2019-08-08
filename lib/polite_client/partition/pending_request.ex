@@ -40,6 +40,11 @@ defmodule PoliteClient.Partition.PendingRequest do
     end
   end
 
+  @doc "Returns true if the process owning the allocation is alive."
+  @spec owner_alive?(t()) :: boolean()
+  def owner_alive?(%__MODULE__{allocation: allocation}),
+    do: AllocatedRequest.owner_alive?(allocation)
+
   defp shutdown_associated_task(%__MODULE__{task: nil}), do: :no_task
   defp shutdown_associated_task(%__MODULE__{task: task}), do: Task.shutdown(task)
 end

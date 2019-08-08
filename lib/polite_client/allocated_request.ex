@@ -46,5 +46,9 @@ defmodule PoliteClient.AllocatedRequest do
     send(pid, {ref, :canceled})
   end
 
+  @doc "Returns true if the process owning the allocated request is alive."
+  @spec owner_alive?(t()) :: boolean()
+  def owner_alive?(%__MODULE__{owner: pid}), do: Process.alive?(pid)
+
   def send_result(%__MODULE__{ref: ref, owner: pid}, result), do: send(pid, {ref, result})
 end
