@@ -140,6 +140,23 @@ defmodule PoliteClient.Partition.State do
     %{state | queued_requests: q}
   end
 
+  @spec queue_capacity(state :: t()) :: {:ok | :max_queued, new_state :: t()}
+
+  def queue_capacity(%__MODULE__{queued_requests: queued, max_queued: max} = state)
+      when length(queued) < max,
+      do: {:ok, state}
+
+  def queue_capacity(%__MODULE__{queued_requests: queued, max_queued: max} = state) do
+    queued = Enum.filter(queued, &PendingRequest.owner_alive?/1)
+    state = %{state | queued_requests: queued}
+
+    if length(queued) < max do
+      {:ok, state}
+    else
+      {:max_queued, state}
+    end
+  end
+
   @spec in_flight?(state :: t(), ref :: reference()) :: boolean()
   def in_flight?(%__MODULE__{in_flight_requests: in_flight}, ref)
       when is_reference(ref),

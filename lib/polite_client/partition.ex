@@ -148,36 +148,32 @@ defmodule PoliteClient.Partition do
   end
 
   @impl GenServer
-  def handle_call(
-        {:request, _request, _opts},
-        _from,
-        %{queued_requests: queued, max_queued: max} = state
-      )
-      when length(queued) >= max do
-    Logger.warn("Received request: over capacity (max_queued: #{max})")
-    {:reply, {:error, :max_queued}, state}
-  end
-
-  @impl GenServer
   def handle_call({:request, request, opts}, {pid, _}, state) do
-    pending_request = %PendingRequest{
-      request: request,
-      client: Keyword.get(opts, :client, state.client),
-      allocation: %AllocatedRequest{
-        ref: ref = make_ref(),
-        owner: pid,
-        partition: state.key
-      }
-    }
+    case State.queue_capacity(state) do
+      {:max_queued, %{max_queued: max} = state} ->
+        Logger.warn("Received request: over capacity (max_queued: #{max})")
+        {:reply, {:error, :max_queued}, state}
 
-    Logger.debug("Received request: allocated with ref #{inspect(ref)}")
+      {:ok, state} ->
+        pending_request = %PendingRequest{
+          request: request,
+          client: Keyword.get(opts, :client, state.client),
+          allocation: %AllocatedRequest{
+            ref: ref = make_ref(),
+            owner: pid,
+            partition: state.key
+          }
+        }
 
-    state =
-      state
-      |> State.enqueue(pending_request)
-      |> maybe_process_next_request()
+        Logger.debug("Received request from #{inspect(pid)}: allocated with ref #{inspect(ref)}")
 
-    {:reply, PendingRequest.get_allocation(pending_request), state}
+        state =
+          state
+          |> State.enqueue(pending_request)
+          |> maybe_process_next_request()
+
+        {:reply, PendingRequest.get_allocation(pending_request), state}
+    end
   end
 
   @impl GenServer
