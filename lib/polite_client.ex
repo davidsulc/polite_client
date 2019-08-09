@@ -162,14 +162,6 @@ defmodule PoliteClient do
   Be mindful of long delays before results are returned (expecially if the queue length is significant). To handle this,
   you may want to add and `after` clause to the `receive`, or listen for the responses from within a `handle_info` clause
   in a GenServer.
-
-  ## Known limitations
-
-  Partitions don't monitor callers, so queued requests will stay in their queue event if the caller
-  dies in the meantime. The caller's liveliness is only checked before spawning the request task
-  (the task is only spawned if the caller is alive). Therefore, it's possible a partition will
-  refuse new requests due to reaching the max queue size, even though some of those requests
-  won't end up being made (because they belong to now dead callers).
   """
   @spec async_request(key :: partition_key(), request :: PoliteClient.Client.request()) ::
           AllocatedRequest.t()
