@@ -185,7 +185,13 @@ defmodule PoliteClient.Partition do
   @impl GenServer
   def handle_info(:auto_resume, state) do
     Logger.info("Auto-resuming")
-    {:noreply, do_resume(state)}
+
+    state =
+      state
+      |> State.reset_health_checker_internal_state()
+      |> do_resume()
+
+    {:noreply, state}
   end
 
   @impl GenServer

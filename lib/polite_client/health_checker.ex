@@ -12,9 +12,9 @@ defmodule PoliteClient.HealthChecker do
   active state on its own. On the other hand, if the suspension is permanent, the partition
   will require a manual intervention (via `PoliteClient.resume/1`) to return to the active state.
 
-  When resuming automatically from suspension the health checker and rate limiter states are
-  preserved: the next request will NOT be triggered immediately (whereas it would be on manual
-  resume with `PoliteClient.resume/1`).
+  When resuming from suspension (whether automatically or manually), the health checker state is reset:
+  it is assumed the suspension period was long enough for previous intermittent health issues to no longer
+  be relevant upon resuming.
   """
 
   alias PoliteClient.ResponseMeta

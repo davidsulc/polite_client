@@ -4,6 +4,9 @@ defmodule PoliteClient.RateLimiter do
 
   In order to avoid overwhelming a remote host, the PoliteClient will introduce a delay between requests
   executed with the same partition. This delay is bounded at both extremities.
+
+  When resuming automatically from suspension the rate limiter state is preserved: the next request will
+  NOT be triggered immediately (whereas it would be on manual resume with PoliteClient.resume/1).
   """
 
   alias PoliteClient.ResponseMeta
