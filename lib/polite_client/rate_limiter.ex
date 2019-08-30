@@ -68,6 +68,7 @@ defmodule PoliteClient.RateLimiter do
     config
   end
 
+  @spec config({:constant | :relative, term()}) :: {:ok, config()}
   def config({tag, arg}) when is_atom(tag), do: config({tag, arg, []})
 
   @spec config({:constant | :relative, term(), Keyword.t()}) :: {:ok, config()}
@@ -81,7 +82,8 @@ defmodule PoliteClient.RateLimiter do
   * if the first element in the tuple is `:relative`, the computed delay will be the duration of the
       last request (in microseconds!) multiplied by the second tuple element (the `factor`).
 
-  In all cases, the last tuple element `opts`, is forwarded to `PoliteClient.RateLimiter.config/3`.
+  In all cases, the last tuple element `opts`, is forwarded to `PoliteClient.RateLimiter.config/3`. If none is
+  provided, `[]` is used as the default value.
   """
   def config({:constant, delay, opts}) do
     opts =
@@ -106,12 +108,13 @@ defmodule PoliteClient.RateLimiter do
   The configuration will use the `limiter_function` to determine (after every request) the delay to apply between requests,
   and will initialize its internal state with `initial_state`.
 
-  Min and max delay values of type `t:PoliteClient.RateLimiter.duration/0` can be provided as options associated
-  to the `:min_delay` and `:max_delay` keys, respectively. The delay computed by `limiter_function` will then be
-  clamped to ensure it is within the min and max range. The default `min_delay` is 1 second, while `max_delay` is 2 minutes.
-
   The rate limiter's internal state will also be reinitialized to the value of `initial_state` when a partition
   is manually resumed.
+
+  ### Options
+  Min and max delay values of type `t:PoliteClient.RateLimiter.duration/0` can be provided as options associated
+  to the `:min_delay` and `:max_delay` keys `opts`, respectively. The delay computed by `limiter_function` will then be
+  clamped to ensure it is within the min and max range. The default `min_delay` is 1 second, while `max_delay` is 2 minutes.
   """
   @spec config(limiter_function :: limiter(), initial_state :: term(), opts :: Keyword.t()) ::
           {:ok, config()}

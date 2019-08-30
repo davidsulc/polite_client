@@ -70,7 +70,7 @@ defmodule PoliteClient do
   resumed) if a single request took more than 10 seconds:
 
   ```
-  {:ok, health_checker_config} = PoliteClient.RateLimiter.config({:relative, 2, min_delay: 500})
+  {:ok, rate_limiter_config} = PoliteClient.RateLimiter.config({:relative, 2, min_delay: 500})
 
   {:ok, health_checker_config} =
     PoliteClient.HealthChecker.config(
