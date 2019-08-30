@@ -84,7 +84,7 @@ defmodule PoliteClient do
         status =
           cond do
             # the `ResponseMeta` duration is in microseconds!
-            duration > 100_000 -> {:suspend, :infinity}
+            duration > 10_000_000 -> {:suspend, :infinity}
             consecutive_errors > 2 -> {:suspend, 5 * 60 * 1_000}
             true -> :ok
           end
