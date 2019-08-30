@@ -78,11 +78,12 @@ defmodule PoliteClient do
         consecutive_errors =
           case result do
             {:ok, _} -> 0 # the streak of errors was broken, reset the count
-            {:errors, _} -> consecutive_errors + 1 # increment the error streak
+            {:error, _} -> consecutive_errors + 1 # increment the error streak
           end
 
         status =
           cond do
+            # the `ResponseMeta` duration is in microseconds!
             duration > 100_000 -> {:suspend, :infinity}
             consecutive_errors > 2 -> {:suspend, 5 * 60 * 1_000}
             true -> :ok
