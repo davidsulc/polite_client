@@ -153,7 +153,7 @@ defmodule PoliteClient do
 
   ```
   PoliteClient.start(:my_partition, client: fn request -> {:ok, request} end)
-  %PoliteClient.AllocatedRequest{ref: ref} = PoliteClient.async_request(:my_partition, :bar)
+  %PoliteClient.AllocatedRequest{ref: ref} = PoliteClient.async_request(:my_partition, :foo)
   receive do
     {^ref, result} -> result
   end
