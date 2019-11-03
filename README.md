@@ -1,21 +1,6 @@
 # PoliteClient
 
-**TODO: Add description**
+TODO
 
-## Installation
-
-If [available in Hex](https://hex.pm/docs/publish), the package can be installed
-by adding `polite_client` to your list of dependencies in `mix.exs`:
-
-```elixir
-def deps do
-  [
-    {:polite_client, "~> 0.1.0"}
-  ]
-end
-```
-
-Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_doc)
-and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
-be found at [https://hexdocs.pm/polite_client](https://hexdocs.pm/polite_client).
-
+[ ] jitter/fuzz request delay
+[ ] delay next request if error cause is network failure
