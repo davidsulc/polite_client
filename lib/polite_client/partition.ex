@@ -103,7 +103,7 @@ defmodule PoliteClient.Partition do
   @impl GenServer
   def handle_call(:idle?, _from, state) do
     %{queued_requests: queued, in_flight_requests: in_flight} = state
-    {:reply, queued == [] && Map.size(in_flight) == 0, state}
+    {:reply, queued == [] && map_size(in_flight) == 0, state}
   end
 
   @impl GenServer
