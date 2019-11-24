@@ -146,6 +146,14 @@ defmodule PoliteClient do
   * `:client` - the `t:PoliteClient.Client.t/0` to use for the request. If none is provided, the partition's
     client will be used.
 
+  Errors:
+
+  * `:no_partition` - no partition with the given `key` exists: start one with `start/2`.
+  * `:max_queued` - the maximum number of queued requests has been reached: the partition won't accept any further
+      requests until the queue size has available capacity (i.e. some pending requests have completed).
+  * `:suspended` - the partition is suspended and therefore won't accept any requests until it resumes (either on
+      its own, or by calling `resume/1`).
+
   ## Example
 
   In the examples below, the `:client` value would typically be a function making a request via an
@@ -164,9 +172,13 @@ defmodule PoliteClient do
   you may want to add and `after` clause to the `receive`, or listen for the responses from within a `handle_info` clause
   in a GenServer.
   """
-  @spec async_request(key :: partition_key(), request :: PoliteClient.Client.request()) ::
+  @spec async_request(
+          key :: partition_key(),
+          request :: PoliteClient.Client.request(),
+          options :: Keyword.t()
+        ) ::
           AllocatedRequest.t()
-          | {:error, :max_queued | :suspended}
+          | {:error, :no_partition | :max_queued | :suspended}
   def async_request(key, request, opts \\ []) do
     with_partition(key, &Partition.async_request(&1, request, opts))
   end
@@ -312,7 +324,7 @@ defmodule PoliteClient do
 
   These options MUST be provided:
 
-  * `client` - the `t:PoliteClient.Client.t()` implementation to use when executing requests
+  * `client` - the `t:PoliteClient.Client.t/0` implementation to use when executing requests
 
   These options MAY be provided:
 
