@@ -352,6 +352,11 @@ defmodule PoliteClient do
           | {:error, :max_partitions}
   defdelegate start(key, opts \\ []), to: PartitionsMgr, as: :start
 
+  @doc """
+  Stops the partition if it is idle (returns `{:error, :busy}` otherwise). If
+  `force: :true` is given as an option, the partition is stopped even if busy:
+  it will cancel all pending requests.
+  """
   @spec stop(key :: partition_key(), opts :: Keyword.t()) ::
           :ok | {:error, reason}
         when reason: :no_partition | :busy

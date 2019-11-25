@@ -22,7 +22,7 @@ defmodule PoliteClient.PartitionsMgr do
   end
 
   @doc """
-  Stops the partition if it is idle (returns `{:error, :busy}` otherwise. If
+  Stops the partition if it is idle (returns `{:error, :busy}` otherwise). If
   `force: :true` is given as an option, the partition is stopped even if busy:
   it will cancel all pending requests.
   """
