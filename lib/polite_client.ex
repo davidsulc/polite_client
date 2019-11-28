@@ -336,6 +336,7 @@ defmodule PoliteClient do
   * `max_retries` - number of times a failed request should be retried after the initial attempt. In this
       context, a failed request is one where a response from the server isn't received (e.g. network error):
       receiving an error response from the server (e.g. HTTP 5xx Server errors) is considered a successful request.
+      Defaults to 3.
   * `max_queued` - the number of requests to keep in a queue. Once the queue is full, calls to `async_request/2`
       will return `{:error, :max_queued}`. Defaults to 250.
 
