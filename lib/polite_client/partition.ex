@@ -151,7 +151,7 @@ defmodule PoliteClient.Partition do
   def handle_call({:request, request, opts}, {pid, _}, state) do
     case State.queue_capacity(state) do
       {:max_queued, %{max_queued: max} = state} ->
-        Logger.warn("Received request: over capacity (max_queued: #{max})")
+        Logger.info("Received request: over capacity (max_queued: #{max})")
         {:reply, {:error, :max_queued}, state}
 
       {:ok, state} ->
