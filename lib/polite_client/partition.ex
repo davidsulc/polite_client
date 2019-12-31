@@ -319,16 +319,19 @@ defmodule PoliteClient.Partition do
   defp maybe_process_next_request(%State{available: true} = state) do
     state
     |> State.set_unavailable()
-    |> process_next_request()
+    |> case do
+      %{status: {:suspended, _}} = state ->
+        state
+
+      %{queued_requests: q} = state ->
+        purged_queue = Enum.drop_while(q, &(!PendingRequest.owner_alive?(&1)))
+        process_next_request(%{state | queued_requests: purged_queue})
+    end
   end
 
   defp process_next_request(%{queued_requests: []} = state), do: State.set_available(state)
 
-  defp process_next_request(%{status: {:suspended, _}} = state), do: state
-
-  defp process_next_request(%{queued_requests: q} = state) do
-    [next | t] = Enum.drop_while(q, &(!PendingRequest.owner_alive?(&1)))
-
+  defp process_next_request(%{queued_requests: [next | t]} = state) do
     %Task{ref: task_ref} =
       task =
       Task.Supervisor.async_nolink(state.task_supervisor, fn ->
