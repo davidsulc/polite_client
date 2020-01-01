@@ -112,13 +112,14 @@ defmodule PoliteClient.Partition do
 
     {in_flight_to_cancel, in_flight_remaining} =
       state.in_flight_requests
-      |> Map.values()
-      |> Enum.split_with(&PendingRequest.for_allocation?(&1, allocation))
+      |> Map.to_list()
+      |> Enum.split_with(fn {_k, v} -> PendingRequest.for_allocation?(v, allocation) end)
 
     {queued_to_cancel, queued_remaining} =
       Enum.split_with(state.queued_requests, &PendingRequest.for_allocation?(&1, allocation))
 
-    Enum.each(in_flight_to_cancel ++ queued_to_cancel, &PendingRequest.cancel/1)
+    new_requests_to_cancel = Enum.map(in_flight_to_cancel, fn {_k, v} -> v end)
+    Enum.each(new_requests_to_cancel ++ queued_to_cancel, &PendingRequest.cancel/1)
 
     state =
       state
