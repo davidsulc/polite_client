@@ -208,7 +208,7 @@ defmodule PoliteClient do
   @doc """
   Cancels a request.
 
-  Assuming the `allocated_request` was know to the partition, the caller will receive a
+  Assuming the `allocated_request` was known to the partition, the caller will receive a
   `{ref, :canceled}` message, where `ref` is the reference matching `allocated_request.ref`.
 
   If the request is unknown (already executed, lost due to crash, etc.) the cancelation
