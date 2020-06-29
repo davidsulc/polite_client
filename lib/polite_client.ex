@@ -150,7 +150,7 @@ defmodule PoliteClient do
 
   * `:no_partition` - no partition with the given `key` exists: start one with `start/2`.
   * `:max_queued` - the maximum number of queued requests has been reached: the partition won't accept any further
-      requests until the queue size has available capacity (i.e. some pending requests have completed).
+      requests until the queue size has available capacity (i.e. some pending requests have completed or been canceled).
   * `:suspended` - the partition is suspended and therefore won't accept any requests until it resumes (either on
       its own, or by calling `resume/1`).
 
